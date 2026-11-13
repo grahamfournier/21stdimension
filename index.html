@@ -1468,9 +1468,13 @@
     const dc = document.createElement('canvas');
     const k = Math.min(1, 1024 / Math.max(d.videoWidth || 1024, d.videoHeight || 1024));
     dc.width = Math.round((d.videoWidth || 1024) * k); dc.height = Math.round((d.videoHeight || 512) * k);
+    // restart both from the beginning together so the depth lines up with the picture
+    const v = liveVid.video;
+    v.pause(); d.pause();
+    const seeked = (x) => new Promise((res) => { if (x.currentTime === 0 && !x.seeking) return res(); x.addEventListener('seeked', res, { once: true }); setTimeout(res, 3000); x.currentTime = 0; });
+    await Promise.all([seeked(v), seeked(d)]);
     liveVid.depthVideo = d; liveVid.dcanvas = dc; liveVid.dctx = dc.getContext('2d');
-    d.currentTime = liveVid.video.currentTime;
-    if (!liveVid.video.paused) d.play().catch(() => {});
+    try { await Promise.all([v.play(), d.play()]); $('playLive').textContent = 'Pause'; } catch (err) { $('playLive').textContent = 'Play'; }
     $('tiltNote').textContent = 'Depth video loaded. Tap the picture to turn tilt on; the frame and depth sliders work now too.';
     status('Using ' + f.name + ' as the depth.');
   };
@@ -1567,7 +1571,7 @@
       if (m) {
         if (v.paused !== m.video.paused) { if (v.paused) m.video.pause(); else m.video.play().catch(() => {}); }
         if (m.video.paused !== m.depthVideo.paused) { if (m.video.paused) m.depthVideo.pause(); else m.depthVideo.play().catch(() => {}); }
-        if (Math.abs(m.depthVideo.currentTime - m.video.currentTime) > 0.1) m.depthVideo.currentTime = m.video.currentTime;
+        if (Math.abs(m.depthVideo.currentTime - m.video.currentTime) > 0.05) m.depthVideo.currentTime = m.video.currentTime;
         if (m.video.readyState >= 2) { m.ctx.drawImage(m.video, 0, 0, m.canvas.width, m.canvas.height); upTex(texImg[1], m.canvas); }
         if (m.depthVideo.readyState >= 2) {
           m.dctx.drawImage(m.depthVideo, 0, 0, m.dcanvas.width, m.dcanvas.height);
@@ -1578,7 +1582,7 @@
       const dvid = liveVid.depthVideo;
       if (dvid) {
         if (v.paused !== dvid.paused) { if (v.paused) dvid.pause(); else dvid.play().catch(() => {}); }
-        if (Math.abs(dvid.currentTime - v.currentTime) > 0.1) dvid.currentTime = v.currentTime;
+        if (Math.abs(dvid.currentTime - v.currentTime) > 0.05) dvid.currentTime = v.currentTime;
         if (dvid.readyState >= 2) {
           liveVid.dctx.drawImage(dvid, 0, 0, liveVid.dcanvas.width, liveVid.dcanvas.height);
           gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep[0]);
