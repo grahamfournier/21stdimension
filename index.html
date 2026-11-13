@@ -1118,12 +1118,24 @@
         if (dot(P, clip.xy) + clip.z < 0.0) discard;
         q = (uv - place.xy) / place.zw;
         // past the picture's side edge (revealed when the dividing line tilts): mirror the picture instead of showing black
-        q.x = clamp(1.0 - abs(1.0 - abs(q.x)), 0.0, 1.0);
         if (q.y < 0.0 || q.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+        float over = max(-q.x, q.x - 1.0);
+        if (over > 0.0) {
+          vec2 m = vec2(clamp(1.0 - abs(1.0 - abs(q.x)), 0.0, 1.0), q.y);
+          float r = 0.01 + over * 0.6;   // blur grows with distance past the edge
+          vec3 acc = vec3(0.0);
+          for (int i = -3; i <= 3; i++) for (int j = -3; j <= 3; j++) {
+            vec2 o = vec2(float(i), float(j)) * r / 3.0;
+            acc += texture2D(img, rect.xy + clamp(m + vec2(o.x * 0.5, o.y), 0.0, 1.0) * rect.zw).rgb;
+          }
+          vec3 c0 = acc / 49.0 * (1.0 - smoothstep(0.0, 0.25, over) * 0.35);
+          gl_FragColor = vec4(gray > 0.5 ? vec3(dot(c0, vec3(0.299, 0.587, 0.114))) : c0, 1.0);
+          return;
+        }
       }
       // find the source pixel that lands here (near things shift more than far ones)
       vec2 p = q;
-      for (int i = 0; i < 12; i++) { p = q - shift * (D(p) - focus); }
+      for (int i = 0; i < 16; i++) { p = mix(p, q - shift * (D(p) - focus), 0.6); }
       p = clamp(p, 0.0, 1.0);
       float d = D(p);
       vec3 c = texture2D(img, rect.xy + p * rect.zw).rgb;
@@ -1132,7 +1144,7 @@
         vec2 fq = (q - ffit.xy) / ffit.zw;
         if (fq.x >= 0.0 && fq.x <= 1.0 && fq.y >= 0.0 && fq.y <= 1.0) {
           vec2 fs = shift / ffit.zw, fp = fq;
-          for (int i = 0; i < 12; i++) { fp = fq - fs * (FD(fp) - focus); }
+          for (int i = 0; i < 16; i++) { fp = mix(fp, fq - fs * (FD(fp) - focus), 0.6); }
           fp = clamp(fp, 0.0, 1.0);
           float fd = FD(fp);
           float t = 1.0 - famount;   // 0 = no foreground, 1 = all of it, nearest parts first
@@ -1236,9 +1248,24 @@
       document.head.appendChild(el);
     });
   }
+  // one-euro filter: smooth when still, quick when moving (stops the jitter without adding much lag)
+  function oneEuro(minCut, beta) {
+    let x = null, dx = 0, t = 0;
+    const a = (cut, dt) => 1 / (1 + 1 / (2 * Math.PI * cut * dt));
+    return (v, now) => {
+      if (x === null) { x = v; t = now; return v; }
+      const dt = Math.max(1e-3, (now - t) / 1000); t = now;
+      const d = (v - x) / dt; dx += a(1, dt) * (d - dx);
+      x += a(minCut + beta * Math.abs(dx), dt) * (v - x);
+      return x;
+    };
+  }
+  let fX, fY, fI, fR, lastIpd = null;
+  function resetFilters() { fX = oneEuro(1.2, 0.8); fY = oneEuro(1.2, 0.8); fI = oneEuro(0.6, 0.3); fR = oneEuro(0.8, 0.5); lastIpd = null; }
+  resetFilters();
   function onFace(r) {
     const lm = r.multiFaceLandmarks && r.multiFaceLandmarks[0];
-    if (!lm || !eyesOn) return;
+    if (!lm || !eyesOn) return;   // face lost: keep the last view instead of jumping
     // iris centres (468, 473); flip x so it matches the screen the viewer is looking at
     const a = lm[468] || lm[33], b = lm[473] || lm[263];
     const A = { x: 1 - a.x, y: a.y }, B = { x: 1 - b.x, y: b.y };
@@ -1247,11 +1274,15 @@
     const mid = { x: (L.x + R.x) / 2, y: (L.y + R.y) / 2 };
     const ipd = Math.hypot((R.x - L.x) * aspect, R.y - L.y);
     const roll = Math.atan2(R.y - L.y, (R.x - L.x) * aspect);
-    if (!eyeBase) eyeBase = { x: mid.x, y: mid.y, ipd, roll: 0 };
+    if (lastIpd && Math.abs(ipd / lastIpd - 1) > 0.25) return;   // a misread frame: skip it
+    lastIpd = ipd;
+    const now = performance.now();
+    const sx = fX(mid.x, now), sy = fY(mid.y, now), si = fI(ipd, now), sr = fR(roll, now);
+    if (!eyeBase) eyeBase = { x: sx, y: sy, ipd: si, roll: 0 };
     const k = parseFloat($('sens').value) / 0.15;
-    look = [Math.max(-2, Math.min(2, (mid.x - eyeBase.x) * k)), Math.max(-2, Math.min(2, (mid.y - eyeBase.y) * k))];
-    depthMul = Math.max(0.4, Math.min(2.5, ipd / eyeBase.ipd));
-    headRoll = Math.max(-0.7, Math.min(0.7, roll));
+    look = [Math.max(-2, Math.min(2, (sx - eyeBase.x) * k)), Math.max(-2, Math.min(2, (sy - eyeBase.y) * k))];
+    depthMul = Math.max(0.6, Math.min(1.8, si / eyeBase.ipd));
+    headRoll = Math.max(-0.6, Math.min(0.6, sr));
   }
   async function startEyes() {
     $('tiltNote').textContent = 'Starting the front camera…';
@@ -1270,7 +1301,7 @@
       faceMesh.onResults(onFace);
       await faceMesh.initialize();
     }
-    eyesOn = true; eyeBase = null;
+    eyesOn = true; eyeBase = null; resetFilters();
     $('tiltNote').textContent = 'Eye tracking is on. Move your head to look around; lean in for more depth. Tap the picture to turn it off.';
     (async function loop() {
       if (!eyesOn) return;
@@ -1635,7 +1666,7 @@
       }
       ew = img.w; eh = img.h;
     }
-    const sm = eyesOn ? 0.35 : 0.2;
+    const sm = eyesOn ? 0.6 : 0.2;
     smooth[0] += (look[0] - smooth[0]) * sm; smooth[1] += (look[1] - smooth[1]) * sm;
     // canvas has the same shape as the saved output
     const OW = fmt === 'parallel' || fmt === 'cross' ? ew * 2 : ew, OH = fmt === 'overunder' ? eh * 2 : eh;   // window / red-cyan: one picture
@@ -1697,7 +1728,7 @@
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
   requestAnimationFrame(viewFrame);
-  $('recenter').onclick = () => { baseR = curR; eyeBase = null; look = [0, 0]; };
+  $('recenter').onclick = () => { baseR = curR; eyeBase = null; resetFilters(); look = [0, 0]; };
   $('motion').onchange = () => { if (eyesOn) stopEyes(); if (tiltOn) { window.removeEventListener('deviceorientation', onOrient); tiltOn = false; curR = null; baseR = null; look = [0, 0]; }
     $('tiltNote').textContent = 'Tap the picture to turn on ' + ($('motion').value === 'eyes' ? 'eye tracking.' : 'tilt.'); };
   const updTilt = () => { $('sensV').textContent = parseFloat($('sens').value).toFixed(2) + '×'; };
