@@ -891,7 +891,7 @@
 
   // ---------- the picture itself follows the phone's tilt ----------
   // The result is drawn live with WebGL. outCanvas (hidden) still holds the full-quality render used for saving.
-  const lc = $('view');
+  let lc = $('view'), glLosses = 0;
   let gl = null, prog = null, texImg = null, texDep = null, glFailed = false, texFor = null;
   const LVS = 'attribute vec2 p; varying vec2 uv; void main(){ uv = p * 0.5 + 0.5; uv.y = 1.0 - uv.y; gl_Position = vec4(p, 0.0, 1.0); }';
   const LFS = `precision highp float;
@@ -917,12 +917,21 @@
       gl_FragColor = vec4(c, 1.0);
     }`;
 
+  // iPhones can drop a page's WebGL surface under memory pressure; when that happens, swap in a fresh canvas
+  function onLost(e) {
+    e.preventDefault(); gl = null; prog = null; texFor = null; depthDirty = true; glLosses++;
+    if (glLosses > 3) return;   // keeps failing: initGL will fall back to the regular render
+    const fresh = lc.cloneNode(false);
+    lc.replaceWith(fresh); lc = fresh; hookCanvas(lc);
+  }
   function initGL() {
+    if (gl && gl.isContextLost()) { gl = null; texFor = null; }
     if (gl) return true;
-    if (glFailed) return false;
+    if (glFailed || glLosses > 3) { if (!glFailed) { glFailed = true; lc.classList.add('hide'); $('outCanvas').classList.remove('hide'); $('tiltNote').classList.add('hide'); } return false; }
     try {
       gl = lc.getContext('webgl', { antialias: false, preserveDrawingBuffer: true });
       if (!gl) throw new Error('no webgl');
+      if (gl.isContextLost()) { gl = null; return false; }   // a fresh canvas is on its way
       const sh = (t, src) => { const x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x);
         if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
       prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, LVS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, LFS));
@@ -937,6 +946,7 @@
       gl.uniform1i(gl.getUniformLocation(prog, 'img'), 0); gl.uniform1i(gl.getUniformLocation(prog, 'dep'), 1);
       return true;
     } catch (e) {
+      if (gl && gl.isContextLost()) { gl = null; return false; }
       // no WebGL: show the regular render instead
       console.warn(e); glFailed = true; gl = null;
       lc.classList.add('hide'); $('outCanvas').classList.remove('hide'); $('tiltNote').classList.add('hide');
@@ -979,8 +989,13 @@
     const k = parseFloat($('sens').value) / 25;
     look = [Math.max(-2, Math.min(2, sx * k)), Math.max(-2, Math.min(2, -sy * k))];
   }
-  lc.addEventListener('click', async () => {
-    if (tiltOn) return;
+  async function onViewTap() {
+    if (tiltOn) {
+      window.removeEventListener('deviceorientation', onOrient);
+      tiltOn = false; curR = null; baseR = null; look = [0, 0];
+      $('tiltNote').textContent = 'Tilt is off. Tap the picture to turn it back on.';
+      return;
+    }
     try {
       if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
         const r = await DeviceOrientationEvent.requestPermission();
@@ -988,14 +1003,20 @@
       }
       window.addEventListener('deviceorientation', onOrient);
       tiltOn = true; baseR = null;
-      $('tiltNote').textContent = 'Tilt is on.';
+      $('tiltNote').textContent = 'Tilt is on. Tap the picture to turn it off.';
     } catch (e) { $('tiltNote').textContent = 'This browser won\'t share motion: ' + (e.message || e); }
-  });
-  lc.addEventListener('mousemove', (e) => {   // computers: the mouse stands in for tilt
+  }
+  function onViewMouse(e) {   // computers: the mouse stands in for tilt
     if (curR) return;
     const r = lc.getBoundingClientRect();
     look = [((e.clientX - r.left) / r.width - 0.5) * 2, ((e.clientY - r.top) / r.height - 0.5) * 2];
-  });
+  }
+  function hookCanvas(c) {
+    c.addEventListener('click', onViewTap);
+    c.addEventListener('mousemove', onViewMouse);
+    c.addEventListener('webglcontextlost', onLost);
+  }
+  hookCanvas(lc);
 
   function drawEye(x, y, w, h, eyeSign, p) {
     gl.viewport(x, y, w, h);
