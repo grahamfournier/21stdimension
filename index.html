@@ -80,7 +80,7 @@
     <canvas id="outCanvas" class="hide" style="width:100%"></canvas>
     <div class="actions" style="margin-top:8px">
       <button class="btn ghost" id="recenter">Re-center</button>
-      <span class="note" id="tiltNote">Tap the picture to turn on motion (tilt or eye tracking, chosen in settings).</span>
+      <span class="note" id="tiltNote">Tap the picture to turn on eye tracking (or tilt, chosen in settings).</span>
     </div>
     <div class="thumbs">
       <figure><canvas id="depthCanvas"></canvas><figcaption>Depth map (bright = near)</figcaption></figure>
@@ -148,7 +148,7 @@
     </div>
     <div class="row" style="margin-top:16px">
       <label class="f">Motion
-        <select id="motion"><option value="tilt" selected>Tilt (phone movement)</option><option value="eyes">Eye tracking (front camera)</option></select>
+        <select id="motion"><option value="eyes" selected>Eye tracking (front camera)</option><option value="tilt">Tilt (phone movement)</option></select>
       </label>
       <label class="f">Motion sensitivity <span class="v" id="sensV"></span>
         <input type="range" id="sens" min="0.2" max="4" step="0.05" value="1">
@@ -1105,10 +1105,20 @@
     uniform sampler2D fimg, fdep;            // foreground layer (mix)
     uniform vec4 frect, fdrect, ffit;        // its eye rects, and where it sits inside the background eye
     uniform float mixOn, famount;
+    uniform float placeOn;
+    uniform vec4 place;      // this eye's picture inside the canvas (x, y, w, h as fractions)
+    uniform vec3 clip;       // keep pixels where clip.x*px + clip.y*py + clip.z >= 0 (the dividing line)
+    uniform vec2 canvasPx;
     float FD(vec2 p) { float d = texture2D(fdep, fdrect.xy + p * fdrect.zw).r; return clamp((d - 0.5) * contrast + 0.5, 0.0, 1.0); }
     float D(vec2 p) { float d = texture2D(dep, drect.xy + p * drect.zw).r; return clamp((d - 0.5) * contrast + 0.5, 0.0, 1.0); }
     void main(){
       vec2 q = uv;
+      if (placeOn > 0.5) {
+        vec2 P = uv * canvasPx;
+        if (dot(P, clip.xy) + clip.z < 0.0) discard;
+        q = (uv - place.xy) / place.zw;
+        if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+      }
       // find the source pixel that lands here (near things shift more than far ones)
       vec2 p = q;
       for (int i = 0; i < 12; i++) { p = q - shift * (D(p) - focus); }
@@ -1524,6 +1534,15 @@
     const motion = 0.05 * (eyesOn ? depthMul : 1);
     return [half * Math.cos(headRoll) + dir * smooth[0] * motion, half * Math.sin(headRoll) * (ew / eh) + dir * smooth[1] * motion];
   }
+  let curPlace = null;   // set while drawing side-by-side pictures with free placement
+  function setPlace() {
+    gl.uniform1f(U('placeOn'), curPlace ? 1 : 0);
+    if (curPlace) {
+      gl.uniform4f(U('place'), ...curPlace.place);
+      gl.uniform3f(U('clip'), ...curPlace.clip);
+      gl.uniform2f(U('canvasPx'), ...curPlace.canvas);
+    }
+  }
   function drawEye(x, y, w, h, eye, p, ew, eh, rect) {
     gl.viewport(x, y, w, h);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, rect ? texImg[0] : texImg[eye]);
@@ -1533,6 +1552,7 @@
     gl.uniform4f(U('rect'), r[0], r[1], r[2], r[3]);
     gl.uniform4f(U('drect'), dr[0], dr[1], dr[2], dr[3]);
     const m = liveVid && liveVid.mix;
+    setPlace();
     gl.uniform1f(U('mixOn'), m ? 1 : 0);
     if (m) {
       gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texImg[1]);
@@ -1618,12 +1638,14 @@
     // canvas has the same shape as the saved output
     const OW = fmt === 'parallel' || fmt === 'cross' ? ew * 2 : ew, OH = fmt === 'overunder' ? eh * 2 : eh;   // window / red-cyan: one picture
     const sc = Math.min(1, 2048 / Math.max(OW, OH)), W = Math.round(OW * sc), H = Math.round(OH * sc);
-    if (lc.width !== W || lc.height !== H) { lc.width = W; lc.height = H; }
+    const CH = H;
+    if (lc.width !== W || lc.height !== CH) { lc.width = W; lc.height = CH; }
     const p = params(ew);
     const raw = liveVid && !liveVid.depths && !liveVid.depthVideo;   // video shown as-is until depth is prepared
     if (raw) { p.frame = null; p.focus = 0.5; }
     const monoPhoto = !liveVid && img.eyes[1] === img.eyes[0];
-    gl.colorMask(true, true, true, true); gl.viewport(0, 0, W, H); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.colorMask(true, true, true, true); gl.viewport(0, 0, W, CH); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    curPlace = null;
     gl.uniform1f(U('gray'), 0);
     const draw = (x, y, w, h, k) => {
       if (monoPhoto) drawEyeMono(x, y, w, h, k, p, ew, eh);   // same picture and depth, opposite shift for each eye
@@ -1640,11 +1662,16 @@
     } else if (fmt === 'window') {
       draw(0, 0, W, H, 0);
     } else {
-      const half = Math.floor(W / 2), first = fmt === 'cross' ? 1 : 0;
-      // with the head tilted, one eye sits lower: move the two pictures up/down so each stays in front of its eye
-      const off = Math.round((W / 2) * Math.tan(headRoll) / 2) * (fmt === 'cross' ? -1 : 1);
-      draw(0, off, half, H, first);
-      draw(half, -off, W - half, H, 1 - first);
+      // the two pictures sit on the line between the viewer's eyes (tilted with the head), split by a line
+      // through the middle at right angles to it
+      const first = fmt === 'cross' ? 1 : 0, ux = Math.cos(headRoll), uy = Math.sin(headRoll);
+      const cx = W / 2, cy = CH / 2, cu = cx * ux + cy * uy;
+      const placeAt = (sgn) => [((cx + sgn * ux * W / 4) - W / 4) / W, ((cy + sgn * uy * W / 4) - H / 2) / CH, 0.5, H / CH];
+      curPlace = { place: placeAt(-1), clip: [-ux, -uy, cu], canvas: [W, CH] };
+      draw(0, 0, W, CH, first);
+      curPlace = { place: placeAt(1), clip: [ux, uy, -cu], canvas: [W, CH] };
+      draw(0, 0, W, CH, 1 - first);
+      curPlace = null;
     }
   }
   // a normal photo: both eyes come from one picture and one depth map, shifted opposite ways
@@ -1653,6 +1680,7 @@
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texImg[0]);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep[0]);
     gl.uniform4f(U('rect'), 0, 0, 1, 1); gl.uniform4f(U('drect'), 0, 0, 1, 1); gl.uniform1f(U('mixOn'), 0);
+    setPlace();
     const sh = eyeShift(k, ew, eh);
     gl.uniform2f(U('shift'), sh[0], sh[1]);
     gl.uniform1f(U('focus'), p.focus);
