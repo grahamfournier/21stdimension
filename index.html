@@ -177,6 +177,29 @@
     <textarea id="settingsText" class="hide" readonly rows="3" style="width:100%;margin-top:10px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font:13px/1.4 ui-monospace,monospace"></textarea>
   </div>
 
+  <div class="panel" id="mixPanel">
+    <div style="font-weight:600;margin-bottom:4px">Mix two videos</div>
+    <div class="note">Each 3D video needs its depth video (the -depth MP4). The foreground is laid over the background, nearest parts first.</div>
+    <div class="actions">
+      <label class="btn ghost">Background video<input type="file" id="mixBg" accept="video/*"></label>
+      <label class="btn ghost">Background depth<input type="file" id="mixBgD" accept="video/*"></label>
+    </div>
+    <div class="note" id="mixBgNote">No background yet.</div>
+    <div class="actions">
+      <label class="btn ghost">Foreground video<input type="file" id="mixFg" accept="video/*"></label>
+      <label class="btn ghost">Foreground depth<input type="file" id="mixFgD" accept="video/*"></label>
+    </div>
+    <div class="note" id="mixFgNote">No foreground yet.</div>
+    <div class="row" style="margin-top:12px">
+      <label class="f">Foreground amount <span class="v" id="famtV"></span>
+        <input type="range" id="famt" min="0" max="100" step="1" value="50">
+      </label>
+    </div>
+    <div class="actions">
+      <button class="btn" id="mixStart" disabled>Show mix</button>
+      <span class="note" id="mixNote"></span>
+    </div>
+  </div>
 </main>
 
 
@@ -1074,6 +1097,10 @@
     uniform vec2 shift, band;
     uniform float focus, thr, gray, frameOn, contrast;
     uniform vec3 fcol;
+    uniform sampler2D fimg, fdep;            // foreground layer (mix)
+    uniform vec4 frect, fdrect, ffit;        // its eye rects, and where it sits inside the background eye
+    uniform float mixOn, famount;
+    float FD(vec2 p) { float d = texture2D(fdep, fdrect.xy + p * fdrect.zw).r; return clamp((d - 0.5) * contrast + 0.5, 0.0, 1.0); }
     float D(vec2 p) { float d = texture2D(dep, drect.xy + p * drect.zw).r; return clamp((d - 0.5) * contrast + 0.5, 0.0, 1.0); }
     void main(){
       vec2 q = uv;
@@ -1083,6 +1110,20 @@
       p = clamp(p, 0.0, 1.0);
       float d = D(p);
       vec3 c = texture2D(img, rect.xy + p * rect.zw).rgb;
+      if (mixOn > 0.5 && famount > 0.0) {
+        // foreground: its own depth decides how far each part shifts, and whether it shows at all
+        vec2 fq = (q - ffit.xy) / ffit.zw;
+        if (fq.x >= 0.0 && fq.x <= 1.0 && fq.y >= 0.0 && fq.y <= 1.0) {
+          vec2 fs = shift / ffit.zw, fp = fq;
+          for (int i = 0; i < 12; i++) { fp = fq - fs * (FD(fp) - focus); }
+          fp = clamp(fp, 0.0, 1.0);
+          float fd = FD(fp);
+          float t = 1.0 - famount;   // 0 = no foreground, 1 = all of it, nearest parts first
+          float a = famount >= 1.0 ? 1.0 : smoothstep(t - 0.015, t + 0.015, fd);
+          c = mix(c, texture2D(fimg, frect.xy + fp * frect.zw).rgb, a);
+          d = mix(d, fd, a);
+        }
+      }
       if (frameOn > 0.5) {
         vec2 b = q - shift * (thr - focus);   // the frame sits at the break-out depth
         bool inBand = b.x < band.x || b.x > 1.0 - band.x || b.y < band.y || b.y > 1.0 - band.y;
@@ -1125,6 +1166,7 @@
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
       texImg = [mk(), mk()]; texDep = [mk(), mk()];
       gl.uniform1i(gl.getUniformLocation(prog, 'img'), 0); gl.uniform1i(gl.getUniformLocation(prog, 'dep'), 1);
+      gl.uniform1i(gl.getUniformLocation(prog, 'fimg'), 2); gl.uniform1i(gl.getUniformLocation(prog, 'fdep'), 3);
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
       if (liveVid) liveVid.depIdx = -1;
       return true;
@@ -1199,6 +1241,7 @@
     if (!liveVid) return;
     try { liveVid.video.pause(); liveVid.video.remove(); URL.revokeObjectURL(liveVid.video.src); } catch (e) {}
     try { if (liveVid.depthVideo) { liveVid.depthVideo.pause(); liveVid.depthVideo.remove(); URL.revokeObjectURL(liveVid.depthVideo.src); } } catch (e) {}
+    try { if (liveVid.mix) for (const x of [liveVid.mix.video, liveVid.mix.depthVideo]) { x.pause(); x.remove(); URL.revokeObjectURL(x.src); } } catch (e) {}
     liveVid = null;
     $('depthUp').classList.add('hide');
     $('playLive').classList.add('hide'); $('saveImg').classList.remove('hide'); $('saveDepth').classList.remove('hide');
@@ -1269,6 +1312,72 @@
     } catch (e) { console.warn(e); status(e.message || String(e)); try { src.close(); } catch (x) {} }
     finish();
   }
+
+  // ---------- mix two videos: background + foreground, each with its depth video ----------
+  const mixFiles = { bg: null, bgd: null, fg: null, fgd: null };
+  function mixNotes() {
+    const n = (f) => (f ? f.name : '—');
+    $('mixBgNote').textContent = 'Background: ' + n(mixFiles.bg) + ' · depth: ' + n(mixFiles.bgd);
+    $('mixFgNote').textContent = 'Foreground: ' + n(mixFiles.fg) + ' · depth: ' + n(mixFiles.fgd);
+    $('mixStart').disabled = !(mixFiles.bg && mixFiles.bgd && mixFiles.fg && mixFiles.fgd);
+  }
+  for (const [id, key] of [['mixBg', 'bg'], ['mixBgD', 'bgd'], ['mixFg', 'fg'], ['mixFgD', 'fgd']]) {
+    $(id).onchange = (e) => { mixFiles[key] = e.target.files[0] || null; e.target.value = ''; mixNotes(); };
+  }
+  const updFamt = () => { $('famtV').textContent = $('famt').value + '%'; };
+  $('famt').oninput = updFamt; updFamt();
+
+  function hiddenVideo(file, muted) {
+    return new Promise((res, rej) => {
+      const v = document.createElement('video');
+      v.playsInline = true; v.setAttribute('playsinline', ''); v.loop = true; v.preload = 'auto'; v.muted = muted;
+      v.style.cssText = 'position:fixed;left:0;bottom:0;width:4px;height:4px;opacity:0.01;pointer-events:none;z-index:-1';
+      v.src = URL.createObjectURL(file); document.body.appendChild(v);
+      v.onloadeddata = () => res(v);
+      v.onerror = () => rej(new Error('Couldn\'t read ' + file.name + '.'));
+      setTimeout(() => res(v), 10000);
+    });
+  }
+  function canvasFor(v, max) {
+    const W = v.videoWidth || 1280, H = v.videoHeight || 720, k = Math.min(1, max / Math.max(W, H));
+    const c = document.createElement('canvas'); c.width = Math.round(W * k); c.height = Math.round(H * k);
+    return c;
+  }
+  function layoutOf(v) {
+    const sel = $('inMode').value;
+    if (sel !== 'auto') return sel;
+    const c = canvasFor(v, 480); c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    return detectLayout(c, c.width, c.height);
+  }
+
+  $('mixStart').onclick = async () => {
+    $('mixStart').disabled = true; $('mixNote').textContent = 'Loading the four videos…';
+    try {
+      stopLive(); img = null;
+      const [bg, bgd, fg, fgd] = await Promise.all([hiddenVideo(mixFiles.bg, false), hiddenVideo(mixFiles.bgd, true), hiddenVideo(mixFiles.fg, true), hiddenVideo(mixFiles.fgd, true)]);
+      const bl = layoutOf(bg), fl = layoutOf(fg);
+      const fc = canvasFor(bg, 2048), dc = canvasFor(bgd, 1024), mc = canvasFor(fg, 2048), mdc = canvasFor(fgd, 1024);
+      const ew = fc.width * RECTS[bl][0][2], eh = fc.height * RECTS[bl][0][3];
+      const few = mc.width * RECTS[fl][0][2], feh = mc.height * RECTS[fl][0][3];
+      // fit the foreground inside the background picture, centered
+      const A = ew / eh, B = few / feh;
+      const fit = B > A ? [0, (1 - A / B) / 2, 1, A / B] : [(1 - B / A) / 2, 0, B / A, 1];
+      liveVid = { file: null, video: bg, frameCanvas: fc, fctx: fc.getContext('2d'), layout: bl, depths: null,
+        depthVideo: bgd, dcanvas: dc, dctx: dc.getContext('2d'), DS: 1, fps: 1, frames: 0, dur: Infinity,
+        eyeW: ew, eyeH: eh, depIdx: -1,
+        mix: { video: fg, depthVideo: fgd, layout: fl, canvas: mc, ctx: mc.getContext('2d'), dcanvas: mdc, dctx: mdc.getContext('2d'), fit } };
+      $('imgOut').classList.remove('hide'); $('outCanvas').classList.add('hide');
+      document.querySelector('.thumbs figure').classList.add('hide');
+      $('saveImg').classList.add('hide'); $('saveDepth').classList.add('hide');
+      $('playLive').classList.remove('hide'); $('depthUp').classList.add('hide');
+      $('tiltNote').textContent = 'Mixing. Tap the picture to turn tilt on.';
+      try { await bg.play(); $('playLive').textContent = 'Pause'; } catch (e) { $('playLive').textContent = 'Play'; }
+      $('mixNote').textContent = 'Background: ' + LAYOUT_NAME[bl] + ', foreground: ' + LAYOUT_NAME[fl] + '. Foreground amount, tilt and the other settings update live.';
+      $('imgOut').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) { $('mixNote').textContent = e.message || String(e); }
+    mixNotes();
+  };
+
   $('allowTilt').onclick = allowTiltVideo;
   $('depthFile').onchange = async (e) => {
     const f = e.target.files[0]; e.target.value = '';
@@ -1334,6 +1443,17 @@
     const r = rect ? rect[eye] : [0, 0, 1, 1], dr = dvMode ? RECTS[liveVid.layout][eye] : [0, 0, 1, 1];
     gl.uniform4f(U('rect'), r[0], r[1], r[2], r[3]);
     gl.uniform4f(U('drect'), dr[0], dr[1], dr[2], dr[3]);
+    const m = liveVid && liveVid.mix;
+    gl.uniform1f(U('mixOn'), m ? 1 : 0);
+    if (m) {
+      gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texImg[1]);
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texDep[1]);
+      const fr = RECTS[m.layout][eye];
+      gl.uniform4f(U('frect'), fr[0], fr[1], fr[2], fr[3]);
+      gl.uniform4f(U('fdrect'), fr[0], fr[1], fr[2], fr[3]);
+      gl.uniform4f(U('ffit'), m.fit[0], m.fit[1], m.fit[2], m.fit[3]);
+      gl.uniform1f(U('famount'), parseFloat($('famt').value) / 100);
+    }
     const strength = parseFloat($('str').value) / 100, sign = eye === 0 ? 1 : -1;
     // turning moves the viewpoint (5% of the width per 25 degrees at sensitivity 1); separate from depth strength
     const dir = $('tdir').value === 'reverse' ? 1 : -1;
@@ -1360,6 +1480,18 @@
       if (v.readyState < 2) return;
       liveVid.fctx.drawImage(v, 0, 0, liveVid.frameCanvas.width, liveVid.frameCanvas.height);
       upTex(texImg[0], liveVid.frameCanvas);
+      const m = liveVid.mix;
+      if (m) {
+        if (v.paused !== m.video.paused) { if (v.paused) m.video.pause(); else m.video.play().catch(() => {}); }
+        if (m.video.paused !== m.depthVideo.paused) { if (m.video.paused) m.depthVideo.pause(); else m.depthVideo.play().catch(() => {}); }
+        if (Math.abs(m.depthVideo.currentTime - m.video.currentTime) > 0.1) m.depthVideo.currentTime = m.video.currentTime;
+        if (m.video.readyState >= 2) { m.ctx.drawImage(m.video, 0, 0, m.canvas.width, m.canvas.height); upTex(texImg[1], m.canvas); }
+        if (m.depthVideo.readyState >= 2) {
+          m.dctx.drawImage(m.depthVideo, 0, 0, m.dcanvas.width, m.dcanvas.height);
+          gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texDep[1]);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, m.dcanvas);
+        }
+      }
       const dvid = liveVid.depthVideo;
       if (dvid) {
         if (v.paused !== dvid.paused) { if (v.paused) dvid.pause(); else dvid.play().catch(() => {}); }
@@ -1428,7 +1560,7 @@
     gl.viewport(x, y, w, h);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texImg[0]);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep[0]);
-    gl.uniform4f(U('rect'), 0, 0, 1, 1); gl.uniform4f(U('drect'), 0, 0, 1, 1);
+    gl.uniform4f(U('rect'), 0, 0, 1, 1); gl.uniform4f(U('drect'), 0, 0, 1, 1); gl.uniform1f(U('mixOn'), 0);
     const strength = parseFloat($('str').value) / 100, sign = k === 0 ? 1 : -1;
     const dir = $('tdir').value === 'reverse' ? 1 : -1;
     gl.uniform2f(U('shift'), sign * strength / 2 + dir * smooth[0] * 0.05, dir * smooth[1] * 0.05);
