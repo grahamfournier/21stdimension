@@ -50,11 +50,6 @@
   .thumbs figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
   .note { font-size: 13px; color: var(--dim); }
   .hide { display: none !important; }
-  #live { position: fixed; inset: 0; background: #000; z-index: 50; }
-  #liveCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  .livebar { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
-    background: rgba(22,24,27,.92); border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
-  .livebar.gone { display: none; }
   .tip { font-size: 13px; color: var(--dim); line-height: 1.5; margin-top: 4px; }
 </style>
 </head>
@@ -68,6 +63,35 @@
     <b>Choose or drop an image or video</b>
     <small id="dropNote">JPG, PNG, HEIC (if your browser reads it), MP4, MOV, WebM</small>
   </label>
+
+  <section class="out hide" id="imgOut">
+    <canvas id="view" style="width:100%;display:block;border-radius:8px;background:#000;touch-action:manipulation"></canvas>
+    <canvas id="outCanvas" class="hide" style="width:100%"></canvas>
+    <div class="note" id="tiltNote" style="margin-top:6px">Tap the picture to turn on tilt. Tap again to re-center.</div>
+    <div class="thumbs">
+      <figure><canvas id="depthCanvas"></canvas><figcaption>Depth map (bright = near)</figcaption></figure>
+      <div class="actions" style="margin-top:0;flex:1">
+        <button class="btn" id="saveImg">Save image</button>
+        <button class="btn ghost" id="saveDepth">Save depth map</button>
+        <span class="note" id="saveNote"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="out hide" id="vidOut">
+    <div class="actions" style="margin-top:0">
+      <button class="btn" id="startVid" disabled>Convert video</button>
+      <button class="btn ghost" id="previewVid" disabled>Preview a frame</button>
+      <button class="btn ghost hide" id="cancelVid">Stop and keep</button>
+      <span class="note" id="vidInfo"></span>
+    </div>
+    <canvas id="vidPreview" class="hide" style="margin-top:14px"></canvas>
+    <video id="vidResult" class="hide" controls playsinline loop style="margin-top:14px"></video>
+    <div class="actions">
+      <button class="btn hide" id="saveVid">Save MP4</button>
+      <span class="note" id="vidSaveNote"></span>
+    </div>
+  </section>
 
   <div class="panel">
     <div class="row">
@@ -127,47 +151,8 @@
     <textarea id="settingsText" class="hide" readonly rows="3" style="width:100%;margin-top:10px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font:13px/1.4 ui-monospace,monospace"></textarea>
   </div>
 
-  <section class="out hide" id="imgOut">
-    <canvas id="outCanvas"></canvas>
-    <div class="thumbs">
-      <figure><canvas id="depthCanvas"></canvas><figcaption>Depth map (bright = near)</figcaption></figure>
-      <div class="actions" style="margin-top:0;flex:1">
-        <button class="btn" id="liveBtn">Live 3D with tilt</button>
-        <button class="btn ghost" id="saveImg">Save image</button>
-        <button class="btn ghost" id="saveDepth">Save depth map</button>
-        <span class="note" id="saveNote"></span>
-      </div>
-    </div>
-  </section>
-
-  <section class="out hide" id="vidOut">
-    <div class="actions" style="margin-top:0">
-      <button class="btn" id="startVid" disabled>Convert video</button>
-      <button class="btn ghost" id="previewVid" disabled>Preview a frame</button>
-      <button class="btn ghost hide" id="cancelVid">Stop and keep</button>
-      <span class="note" id="vidInfo"></span>
-    </div>
-    <canvas id="vidPreview" class="hide" style="margin-top:14px"></canvas>
-    <video id="vidResult" class="hide" controls playsinline loop style="margin-top:14px"></video>
-    <div class="actions">
-      <button class="btn hide" id="saveVid">Save MP4</button>
-      <span class="note" id="vidSaveNote"></span>
-    </div>
-  </section>
 </main>
 
-<div id="live" class="hide">
-  <canvas id="liveCanvas"></canvas>
-  <div class="livebar" id="livebar">
-    <button class="btn" id="tiltOn">Enable tilt</button>
-    <button class="btn ghost" id="recenter">Re-center</button>
-    <button class="btn ghost" id="reverse">Reverse</button>
-    <button class="btn ghost" id="liveClose">Close</button>
-    <label class="f">Look-around <span class="v" id="lookV"></span><input type="range" id="look" min="0" max="15" step="0.1" value="5"></label>
-    <label class="f">Sensitivity <span class="v" id="sensV"></span><input type="range" id="sens" min="0.3" max="3" step="0.05" value="1"></label>
-    <div class="note" id="liveNote" style="width:100%">Tap "Enable tilt", then tilt or turn the phone. Tap the picture to hide these controls. Depth strength, screen plane, contrast, output and frame from the main page all apply.</div>
-  </div>
-</div>
 
 <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js"></script>
 <script>
@@ -893,19 +878,19 @@
   };
 
 
-  // ---------- live 3D with tilt ----------
-  const lc = $('liveCanvas');
-  let gl = null, prog = null, texImg = null, texDep = null, liveOn = false;
+  // ---------- the picture itself follows the phone's tilt ----------
+  // The result is drawn live with WebGL. outCanvas (hidden) still holds the full-quality render used for saving.
+  const lc = $('view');
+  let gl = null, prog = null, texImg = null, texDep = null, glFailed = false, texFor = null;
   const LVS = 'attribute vec2 p; varying vec2 uv; void main(){ uv = p * 0.5 + 0.5; uv.y = 1.0 - uv.y; gl_Position = vec4(p, 0.0, 1.0); }';
   const LFS = `precision highp float;
     varying vec2 uv;
     uniform sampler2D img, dep;
-    uniform vec2 shift, scale, band;
+    uniform vec2 shift, band;
     uniform float focus, thr, gray, frameOn;
     uniform vec3 fcol;
     void main(){
-      vec2 q = (uv - 0.5) / scale + 0.5;
-      if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+      vec2 q = uv;
       // find the source pixel that lands here (near things shift more than far ones)
       vec2 p = q;
       for (int i = 0; i < 12; i++) { float d = texture2D(dep, p).r; p = q - shift * (d - focus); }
@@ -923,29 +908,32 @@
 
   function initGL() {
     if (gl) return true;
-    gl = lc.getContext('webgl', { antialias: false });
-    if (!gl) return false;
-    const sh = (t, src) => { const x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x);
-      if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
-    prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, LVS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, LFS));
-    gl.linkProgram(prog); gl.useProgram(prog);
-    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-    const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    const mk = (unit) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
-    texImg = mk(0); texDep = mk(1);
-    gl.uniform1i(gl.getUniformLocation(prog, 'img'), 0); gl.uniform1i(gl.getUniformLocation(prog, 'dep'), 1);
-    return true;
+    if (glFailed) return false;
+    try {
+      gl = lc.getContext('webgl', { antialias: false, preserveDrawingBuffer: true });
+      if (!gl) throw new Error('no webgl');
+      const sh = (t, src) => { const x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x);
+        if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
+      prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, LVS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, LFS));
+      gl.linkProgram(prog); gl.useProgram(prog);
+      const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+      const mk = (unit) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+      texImg = mk(0); texDep = mk(1);
+      gl.uniform1i(gl.getUniformLocation(prog, 'img'), 0); gl.uniform1i(gl.getUniformLocation(prog, 'dep'), 1);
+      return true;
+    } catch (e) {
+      // no WebGL: show the regular render instead
+      console.warn(e); glFailed = true; gl = null;
+      lc.classList.add('hide'); $('outCanvas').classList.remove('hide'); $('tiltNote').classList.add('hide');
+      return false;
+    }
   }
   const U = (n) => gl.getUniformLocation(prog, n);
 
-  function uploadLive() {
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texImg);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img.canvas);
-    depthDirty = true;
-  }
   function uploadDepth() {
     const p = params(img.w), d = contrastDepth(img.depth, p.contrast), u8 = new Uint8Array(d.length);
     for (let i = 0; i < d.length; i++) u8[i] = d[i] * 255;
@@ -955,12 +943,11 @@
     depthDirty = false;
   }
 
-  // phone orientation -> how far the view has turned from the starting pose, in screen terms
-  let baseR = null, curR = null, look = [0, 0], smooth = [0, 0], reversed = false;
+  // phone orientation -> how far it has turned from where tilt was switched on (or last re-centered)
+  let baseR = null, curR = null, look = [0, 0], smooth = [0, 0], tiltOn = false;
   function rotMatrix(a, b, g) {
     const d = Math.PI / 180, ca = Math.cos(a * d), sa = Math.sin(a * d), cb = Math.cos(b * d), sb = Math.sin(b * d), cg = Math.cos(g * d), sg = Math.sin(g * d);
-    // R = Rz(alpha) * Rx(beta) * Ry(gamma): device frame -> earth frame
-    return [
+    return [ // Rz(alpha) * Rx(beta) * Ry(gamma): device frame -> earth frame
       ca * cg - sa * sb * sg, -sa * cb, ca * sg + sa * sb * cg,
       sa * cg + ca * sb * sg, ca * cb, sa * sg - ca * sb * cg,
       -cb * sg, sb, cb * cg,
@@ -970,42 +957,39 @@
     if (e.beta == null) return;
     curR = rotMatrix(e.alpha || 0, e.beta, e.gamma);
     if (!baseR) baseR = curR;
-    // where the back of the phone now points, seen from the starting pose: v = baseR^T * R * (0,0,-1)
-    const w = [-curR[2], -curR[5], -curR[8]];
+    const w = [-curR[2], -curR[5], -curR[8]];   // where the back of the phone points now
     const v = [baseR[0] * w[0] + baseR[3] * w[1] + baseR[6] * w[2],
                baseR[1] * w[0] + baseR[4] * w[1] + baseR[7] * w[2],
                baseR[2] * w[0] + baseR[5] * w[1] + baseR[8] * w[2]];
     const yaw = Math.atan2(v[0], -v[2]) * 180 / Math.PI, pitch = Math.atan2(v[1], Math.hypot(v[0], v[2])) * 180 / Math.PI;
-    // account for the phone being held sideways (e.g. in a headset)
+    // phone held sideways (e.g. in a headset): turn device axes into screen axes
     const ang = ((screen.orientation && screen.orientation.angle) || window.orientation || 0) * Math.PI / 180;
     const sx = yaw * Math.cos(ang) + pitch * Math.sin(ang), sy = -yaw * Math.sin(ang) + pitch * Math.cos(ang);
-    const k = parseFloat($('sens').value) / 25;
-    look = [Math.max(-1.5, Math.min(1.5, sx * k)), Math.max(-1.5, Math.min(1.5, -sy * k))];
+    look = [Math.max(-1.5, Math.min(1.5, sx / 25)), Math.max(-1.5, Math.min(1.5, -sy / 25))];
   }
-  $('tiltOn').onclick = async () => {
+  lc.addEventListener('click', async () => {
+    if (tiltOn) { baseR = curR; look = [0, 0]; $('tiltNote').textContent = 'Re-centered. Tilt or turn the phone to look around.'; return; }
     try {
       if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
         const r = await DeviceOrientationEvent.requestPermission();
-        if (r !== 'granted') { $('liveNote').textContent = 'Motion access was declined. In Safari settings for this site, allow Motion & Orientation Access.'; return; }
+        if (r !== 'granted') { $('tiltNote').textContent = 'Motion access was declined. Allow Motion & Orientation Access for this site in Safari settings, then tap again.'; return; }
       }
-      baseR = null; window.addEventListener('deviceorientation', onOrient);
-      $('tiltOn').classList.add('hide');
-      $('liveNote').textContent = 'Tilt or turn the phone to look around. Re-center sets your current pose as straight ahead.';
-    } catch (e) { $('liveNote').textContent = 'This browser won\'t share motion: ' + (e.message || e); }
-  };
-  $('recenter').onclick = () => { baseR = curR; look = [0, 0]; };
-  $('reverse').onclick = () => { reversed = !reversed; $('reverse').textContent = reversed ? 'Reverse (on)' : 'Reverse'; };
-  window.addEventListener('mousemove', (e) => { if (!liveOn || curR) return; look = [(e.clientX / innerWidth - 0.5) * 2, (e.clientY / innerHeight - 0.5) * 2]; });
-  lc.addEventListener('click', () => $('livebar').classList.toggle('gone'));
-  $('liveClose').onclick = () => { liveOn = false; $('live').classList.add('hide'); document.body.style.overflow = ''; };
+      window.addEventListener('deviceorientation', onOrient);
+      tiltOn = true; baseR = null;
+      $('tiltNote').textContent = 'Tilt is on. Tilt or turn the phone to look around. Tap the picture to re-center.';
+    } catch (e) { $('tiltNote').textContent = 'This browser won\'t share motion: ' + (e.message || e); }
+  });
+  lc.addEventListener('mousemove', (e) => {   // computers: the mouse stands in for tilt
+    if (curR) return;
+    const r = lc.getBoundingClientRect();
+    look = [((e.clientX - r.left) / r.width - 0.5) * 2, ((e.clientY - r.top) / r.height - 0.5) * 2];
+  });
 
   function drawEye(x, y, w, h, eyeSign, p) {
     gl.viewport(x, y, w, h);
-    const box = w / h, ia = img.w / img.h, s = ia > box ? [1, box / ia] : [ia / box, 1];
-    gl.uniform2f(U('scale'), s[0], s[1]);
-    const la = parseFloat($('look').value) / 100 * (reversed ? 1 : -1);
-    const eye = eyeSign * parseFloat($('str').value) / 100 / 2;
-    gl.uniform2f(U('shift'), eye + smooth[0] * la, smooth[1] * la);
+    const strength = parseFloat($('str').value) / 100;
+    // turning moves the viewpoint; how far scales with depth strength
+    gl.uniform2f(U('shift'), eyeSign * strength / 2 - smooth[0] * strength, -smooth[1] * strength);
     gl.uniform1f(U('focus'), p.focus);
     gl.uniform1f(U('frameOn'), p.frame ? 1 : 0);
     if (p.frame) {
@@ -1017,12 +1001,21 @@
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  function liveFrame() {
-    if (!liveOn) return;
-    const dpr = Math.min(2, devicePixelRatio || 1), W = Math.round(lc.clientWidth * dpr), H = Math.round(lc.clientHeight * dpr);
-    if (lc.width !== W || lc.height !== H) { lc.width = W; lc.height = H; }
+  function viewFrame() {
+    requestAnimationFrame(viewFrame);
+    if (!img || !img.depth || !initGL()) return;
+    if (texFor !== img) {
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texImg);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img.canvas);
+      texFor = img; depthDirty = true;
+    }
     if (depthDirty) uploadDepth();
     smooth[0] += (look[0] - smooth[0]) * 0.2; smooth[1] += (look[1] - smooth[1]) * 0.2;
+    // canvas has the same shape as the saved output
+    const ew = img.w, eh = img.h;
+    const OW = fmt === 'parallel' || fmt === 'cross' ? ew * 2 : ew, OH = fmt === 'overunder' ? eh * 2 : eh;
+    const sc = Math.min(1, 2048 / Math.max(OW, OH)), W = Math.round(OW * sc), H = Math.round(OH * sc);
+    if (lc.width !== W || lc.height !== H) { lc.width = W; lc.height = H; }
     const p = params(img.w);
     gl.colorMask(true, true, true, true); gl.viewport(0, 0, W, H); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform1f(U('gray'), 0);
@@ -1039,19 +1032,8 @@
       drawEye(0, 0, half, H, leftSign, p);
       drawEye(half, 0, W - half, H, -leftSign, p);
     }
-    requestAnimationFrame(liveFrame);
   }
-
-  $('liveBtn').onclick = () => {
-    if (!img || !img.depth) return;
-    try { if (!initGL()) { $('saveNote').textContent = 'This browser has no WebGL, so the live view can\'t run.'; return; } }
-    catch (e) { $('saveNote').textContent = 'Live view failed to start: ' + e.message; return; }
-    $('live').classList.remove('hide'); $('livebar').classList.remove('gone'); document.body.style.overflow = 'hidden';
-    uploadLive();
-    liveOn = true; requestAnimationFrame(liveFrame);
-  };
-  const updLive = () => { $('lookV').textContent = $('look').value + '%'; $('sensV').textContent = parseFloat($('sens').value).toFixed(2) + '×'; };
-  $('look').oninput = updLive; $('sens').oninput = updLive; updLive();
+  requestAnimationFrame(viewFrame);
 
   // ---------- controls ----------
   function updLabels() {
