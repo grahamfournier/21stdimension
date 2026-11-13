@@ -97,7 +97,8 @@
     <div class="actions" style="margin-top:0">
       <button class="btn" id="startVid" disabled>Convert video</button>
       <button class="btn ghost" id="previewVid" disabled>Preview a frame</button>
-      <button class="btn ghost" id="allowTilt" disabled>Allow tilt</button>
+      <button class="btn ghost" id="allowTilt" disabled>Calculate depth for tilt</button>
+      <label class="btn ghost hide" id="depthUp">Add depth video<input type="file" id="depthFile" accept="video/*"></label>
       <button class="btn ghost hide" id="cancelVid">Stop and keep</button>
       <span class="note" id="vidInfo"></span>
     </div>
@@ -105,6 +106,7 @@
     <video id="vidResult" class="hide" controls playsinline loop style="margin-top:14px"></video>
     <div class="actions">
       <button class="btn hide" id="saveVid">Save MP4</button>
+      <button class="btn ghost hide" id="saveDepthVid">Save depth MP4</button>
       <span class="note" id="vidSaveNote"></span>
     </div>
   </section>
@@ -448,6 +450,7 @@
         }
       }
     }
+    out.zmap = zmap;
     return out;
   }
 
@@ -473,6 +476,16 @@
       ctx.putImageData(new ImageData(left, w, h), 0, 0);
       ctx.putImageData(new ImageData(right, w, h), w, 0);
     }
+  }
+
+  // depth (bright = near) in the same layout as the 3D output; red/cyan keeps the left eye's depth
+  function composeDepth(zL, zR, w, h, mode, ctx) {
+    const c = ctx.canvas, toImg = (z) => { const o = new ImageData(w, h), d = o.data;
+      for (let i = 0; i < w * h; i++) { const v = z[i] * 255; d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255; } return o; };
+    if (mode === 'anaglyph') { c.width = w; c.height = h; ctx.putImageData(toImg(zL), 0, 0); return; }
+    const a = mode === 'cross' ? zR : zL, b = mode === 'cross' ? zL : zR;
+    if (mode === 'overunder') { c.width = w; c.height = h * 2; ctx.putImageData(toImg(a), 0, 0); ctx.putImageData(toImg(b), 0, h); }
+    else { c.width = w * 2; c.height = h; ctx.putImageData(toImg(a), 0, 0); ctx.putImageData(toImg(b), w, 0); }
   }
 
   function params(w) {
@@ -634,7 +647,7 @@
     $('imgOut').classList.add('hide');
     $('vidOut').classList.remove('hide');
     $('vidOpts').classList.remove('hide');
-    $('vidResult').classList.add('hide'); $('saveVid').classList.add('hide');
+    $('vidResult').classList.add('hide'); $('saveVid').classList.add('hide'); $('saveDepthVid').classList.add('hide');
     $('vidSaveNote').textContent = '';
     $('startVid').disabled = !session; $('previewVid').disabled = !session; $('allowTilt').disabled = !session;
     $('vidInfo').textContent = file.name;
@@ -868,7 +881,7 @@
   async function convertVideoInner() {
     cancel = false;
     $('startVid').disabled = true; $('cancelVid').classList.remove('hide');
-    $('vidResult').classList.add('hide'); $('saveVid').classList.add('hide'); $('vidSaveNote').textContent = '';
+    $('vidResult').classList.add('hide'); $('saveVid').classList.add('hide'); $('saveDepthVid').classList.add('hide'); $('vidSaveNote').textContent = '';
     let src;
     status('Opening video…');
     try { src = await openDecoderSource(videoFile); }
@@ -901,6 +914,19 @@
     let encErr = null;
     const venc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { encErr = e; } });
     venc.configure(vc.cfg);
+    // depth video: same layout as the 3D video (red/cyan: one picture)
+    const DW = mode === 'anaglyph' ? w : W, DH = mode === 'anaglyph' ? h : H;
+    let dTarget = null, dMuxer = null, dEnc = null;
+    try {
+      const dvc = mode === 'anaglyph' ? await pickVideoCodec(DW, DH, fps) : vc;
+      if (dvc) {
+        dTarget = new Mp4Muxer.ArrayBufferTarget();
+        dMuxer = new Mp4Muxer.Muxer({ target: dTarget, fastStart: 'in-memory', firstTimestampBehavior: 'offset', video: { codec: dvc.mux, width: DW, height: DH, frameRate: fps } });
+        dEnc = new VideoEncoder({ output: (chunk, meta) => dMuxer.addVideoChunk(chunk, meta), error: e => { console.warn('depth video', e); dEnc = null; } });
+        dEnc.configure(dvc.cfg);
+      }
+    } catch (e) { console.warn(e); dEnc = null; }
+    const dpv = document.createElement('canvas'), dpctx = dpv.getContext('2d');
 
     const fc = document.createElement('canvas'); fc.width = FW; fc.height = FH;
     const fctx = fc.getContext('2d', { willReadFrequently: true });
@@ -941,6 +967,13 @@
       const frame = new VideoFrame(pv, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
       venc.encode(frame, { keyFrame: i % (fps * 2) === 0 });
       frame.close();
+      if (dEnc) {
+        composeDepth(L.zmap, R.zmap, w, h, mode, dpctx);
+        const df = new VideoFrame(dpv, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
+        try { dEnc.encode(df, { keyFrame: i % (fps * 2) === 0 }); } catch (e) { dEnc = null; }
+        df.close();
+        while (dEnc && dEnc.encodeQueueSize > 4) await sleep(5);
+      }
       while (venc.encodeQueueSize > 4) await sleep(5);
       done = i + 1;
       const el = (performance.now() - t0) / 1000, per = el / (i + 1), left = per * (frames - i - 1);
@@ -952,20 +985,25 @@
     const partial = done < frames;
     if (encErr || done === 0) {
       try { venc.close(); } catch (e) {}
+      try { if (dEnc) dEnc.close(); } catch (e) {}
       status(encErr ? 'Encoder error: ' + encErr.message : stuckNote || 'Cancelled.'); bar(0);
       $('startVid').disabled = false; src.close(); pv.classList.add('hide'); return;
     }
     status('Finishing video…');
     await venc.flush(); venc.close();
+    let depthBlob = null;
+    if (dEnc) { try { await dEnc.flush(); dEnc.close(); dMuxer.finalize(); depthBlob = new Blob([dTarget.buffer], { type: 'video/mp4' }); } catch (e) { console.warn(e); } }
     if (audio) { try { status('Adding audio…'); audio.dur = done / fps; await encodeAudio(audio, muxer); } catch (e) { console.warn(e); } }
     muxer.finalize();
     const blob = new Blob([target.buffer], { type: 'video/mp4' });
     src.close();
     if (lastVideo) URL.revokeObjectURL(lastVideo.url);
-    lastVideo = { blob, url: URL.createObjectURL(blob), name: videoFile.name.replace(/\.[^.]+$/, '') + '-' + mode + '.mp4' };
+    lastVideo = { blob, url: URL.createObjectURL(blob), name: videoFile.name.replace(/\.[^.]+$/, '') + '-' + mode + '.mp4',
+      depthBlob, depthName: videoFile.name.replace(/\.[^.]+$/, '') + '-' + mode + '-depth.mp4' };
     pv.classList.add('hide');
     const vr = $('vidResult'); vr.src = lastVideo.url; vr.classList.remove('hide');
     $('saveVid').classList.remove('hide');
+    $('saveDepthVid').classList.toggle('hide', !depthBlob);
     $('startVid').disabled = false; bar(0);
     status((partial ? (stuckNote || 'Stopped early.') + ' Kept the ' + done + ' of ' + frames + ' frames that finished' : 'Done: ' + frames + ' frames') + ' in ' + fmtTime((performance.now() - t0) / 1000) + (audio ? ', with audio.' : ', no audio.'));
   }
@@ -979,6 +1017,7 @@
   $('startVid').onclick = convertVideo;
   $('cancelVid').onclick = () => { cancel = true; };
   $('saveVid').onclick = () => { if (lastVideo) save(lastVideo.name, lastVideo.blob, $('vidSaveNote')); };
+  $('saveDepthVid').onclick = () => { if (lastVideo && lastVideo.depthBlob) save(lastVideo.depthName, lastVideo.depthBlob, $('vidSaveNote')); };
 
   // ---------- video frame preview ----------
   async function previewVideoFrame() {
@@ -1031,11 +1070,11 @@
   const LFS = `precision highp float;
     varying vec2 uv;
     uniform sampler2D img, dep;
-    uniform vec4 rect;            // where this eye sits inside the image texture
+    uniform vec4 rect, drect;     // where this eye sits inside the image texture and inside the depth texture
     uniform vec2 shift, band;
     uniform float focus, thr, gray, frameOn, contrast;
     uniform vec3 fcol;
-    float D(vec2 p) { float d = texture2D(dep, p).r; return clamp((d - 0.5) * contrast + 0.5, 0.0, 1.0); }
+    float D(vec2 p) { float d = texture2D(dep, drect.xy + p * drect.zw).r; return clamp((d - 0.5) * contrast + 0.5, 0.0, 1.0); }
     void main(){
       vec2 q = uv;
       // find the source pixel that lands here (near things shift more than far ones)
@@ -1159,7 +1198,9 @@
   function stopLive() {
     if (!liveVid) return;
     try { liveVid.video.pause(); liveVid.video.remove(); URL.revokeObjectURL(liveVid.video.src); } catch (e) {}
+    try { if (liveVid.depthVideo) { liveVid.depthVideo.pause(); liveVid.depthVideo.remove(); URL.revokeObjectURL(liveVid.depthVideo.src); } } catch (e) {}
     liveVid = null;
+    $('depthUp').classList.add('hide');
     $('playLive').classList.add('hide'); $('saveImg').classList.remove('hide'); $('saveDepth').classList.remove('hide');
     document.querySelector('.thumbs figure').classList.remove('hide');
   }
@@ -1229,6 +1270,25 @@
     finish();
   }
   $('allowTilt').onclick = allowTiltVideo;
+  $('depthFile').onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f || !liveVid) return;
+    const d = document.createElement('video');
+    d.playsInline = true; d.setAttribute('playsinline', ''); d.muted = true; d.loop = true; d.preload = 'auto';
+    d.style.cssText = 'position:fixed;left:0;bottom:0;width:4px;height:4px;opacity:0.01;pointer-events:none;z-index:-1';
+    d.src = URL.createObjectURL(f); document.body.appendChild(d);
+    try { await new Promise((res, rej) => { d.onloadeddata = res; d.onerror = () => rej(new Error('Couldn\'t read that depth video.')); setTimeout(res, 8000); }); }
+    catch (err) { status(err.message); d.remove(); return; }
+    if (liveVid.depthVideo) { try { liveVid.depthVideo.remove(); } catch (x) {} }
+    const dc = document.createElement('canvas');
+    const k = Math.min(1, 1024 / Math.max(d.videoWidth || 1024, d.videoHeight || 1024));
+    dc.width = Math.round((d.videoWidth || 1024) * k); dc.height = Math.round((d.videoHeight || 512) * k);
+    liveVid.depthVideo = d; liveVid.dcanvas = dc; liveVid.dctx = dc.getContext('2d');
+    d.currentTime = liveVid.video.currentTime;
+    if (!liveVid.video.paused) d.play().catch(() => {});
+    $('tiltNote').textContent = 'Depth video loaded. Tap the picture to turn tilt on; the frame and depth sliders work now too.';
+    status('Using ' + f.name + ' as the depth.');
+  };
 
   // play a video in the picture area at the top. Without prepared depth it shows as-is (a 3D file shows its own 3D,
   // in whichever output you pick); after "Allow tilt" the depth makes tilt, frame and the depth sliders work too.
@@ -1253,9 +1313,10 @@
     document.querySelector('.thumbs figure').classList.add('hide');
     $('saveImg').classList.add('hide'); $('saveDepth').classList.add('hide');
     $('playLive').classList.remove('hide');
+    $('depthUp').classList.toggle('hide', layout === 'mono');
     if (wasTime) v.currentTime = Math.min(wasTime, liveVid.dur);
     $('tiltNote').textContent = prep ? (tiltOn ? 'Tilt is on. Tap the picture to turn it off.' : 'Tap the picture to turn on tilt.')
-      : 'Playing as-is. Tap "Allow tilt" below to prepare tilt, the frame and depth effects.';
+      : 'Playing as-is. Tap "Calculate depth for tilt" below, or "Add depth video" if you have the matching depth MP4.';
     try { await v.play(); $('playLive').textContent = 'Pause'; } catch (e) { $('playLive').textContent = 'Play'; }
   }
   $('playLive').onclick = () => {
@@ -1268,9 +1329,11 @@
   function drawEye(x, y, w, h, eye, p, ew, eh, rect) {
     gl.viewport(x, y, w, h);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, rect ? texImg[0] : texImg[eye]);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep[eye]);
-    const r = rect ? rect[eye] : [0, 0, 1, 1];
+    const dvMode = !!(liveVid && liveVid.depthVideo);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, dvMode ? texDep[0] : texDep[eye]);
+    const r = rect ? rect[eye] : [0, 0, 1, 1], dr = dvMode ? RECTS[liveVid.layout][eye] : [0, 0, 1, 1];
     gl.uniform4f(U('rect'), r[0], r[1], r[2], r[3]);
+    gl.uniform4f(U('drect'), dr[0], dr[1], dr[2], dr[3]);
     const strength = parseFloat($('str').value) / 100, sign = eye === 0 ? 1 : -1;
     // turning moves the viewpoint (5% of the width per 25 degrees at sensitivity 1); separate from depth strength
     const dir = $('tdir').value === 'reverse' ? 1 : -1;
@@ -1297,7 +1360,16 @@
       if (v.readyState < 2) return;
       liveVid.fctx.drawImage(v, 0, 0, liveVid.frameCanvas.width, liveVid.frameCanvas.height);
       upTex(texImg[0], liveVid.frameCanvas);
-      if (!liveVid.depths) {
+      const dvid = liveVid.depthVideo;
+      if (dvid) {
+        if (v.paused !== dvid.paused) { if (v.paused) dvid.pause(); else dvid.play().catch(() => {}); }
+        if (Math.abs(dvid.currentTime - v.currentTime) > 0.1) dvid.currentTime = v.currentTime;
+        if (dvid.readyState >= 2) {
+          liveVid.dctx.drawImage(dvid, 0, 0, liveVid.dcanvas.width, liveVid.dcanvas.height);
+          gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep[0]);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, liveVid.dcanvas);
+        }
+      } else if (!liveVid.depths) {
         if (liveVid.depIdx !== 0) { const flat = new Uint8Array([128]); upDep(texDep[0], flat, 1, 1); upDep(texDep[1], flat, 1, 1); liveVid.depIdx = 0; }
       } else {
         const idx = Math.min(liveVid.frames - 1, Math.max(0, Math.floor(v.currentTime * liveVid.fps)));
@@ -1328,7 +1400,7 @@
     const sc = Math.min(1, 2048 / Math.max(OW, OH)), W = Math.round(OW * sc), H = Math.round(OH * sc);
     if (lc.width !== W || lc.height !== H) { lc.width = W; lc.height = H; }
     const p = params(ew);
-    const raw = liveVid && !liveVid.depths;   // video shown as-is until depth is prepared
+    const raw = liveVid && !liveVid.depths && !liveVid.depthVideo;   // video shown as-is until depth is prepared
     if (raw) { p.frame = null; p.focus = 0.5; }
     const monoPhoto = !liveVid && img.eyes[1] === img.eyes[0];
     gl.colorMask(true, true, true, true); gl.viewport(0, 0, W, H); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
@@ -1356,7 +1428,7 @@
     gl.viewport(x, y, w, h);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texImg[0]);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep[0]);
-    gl.uniform4f(U('rect'), 0, 0, 1, 1);
+    gl.uniform4f(U('rect'), 0, 0, 1, 1); gl.uniform4f(U('drect'), 0, 0, 1, 1);
     const strength = parseFloat($('str').value) / 100, sign = k === 0 ? 1 : -1;
     const dir = $('tdir').value === 'reverse' ? 1 : -1;
     gl.uniform2f(U('shift'), sign * strength / 2 + dir * smooth[0] * 0.05, dir * smooth[1] * 0.05);
