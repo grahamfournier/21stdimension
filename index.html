@@ -80,7 +80,7 @@
     <canvas id="outCanvas" class="hide" style="width:100%"></canvas>
     <div class="actions" style="margin-top:8px">
       <button class="btn ghost" id="recenter">Re-center</button>
-      <span class="note" id="tiltNote">Tap the picture to turn on tilt.</span>
+      <span class="note" id="tiltNote">Tap the picture to turn on motion (tilt or eye tracking, chosen in settings).</span>
     </div>
     <div class="thumbs">
       <figure><canvas id="depthCanvas"></canvas><figcaption>Depth map (bright = near)</figcaption></figure>
@@ -119,6 +119,7 @@
           <button data-v="cross">Cross-eye</button>
           <button data-v="anaglyph">Red/Cyan</button>
           <button data-v="overunder">Over-under</button>
+          <button data-v="window">Window</button>
         </div>
       </div>
       <label class="f">Depth detail
@@ -146,10 +147,13 @@
       </label>
     </div>
     <div class="row" style="margin-top:16px">
-      <label class="f">Tilt sensitivity <span class="v" id="sensV"></span>
+      <label class="f">Motion
+        <select id="motion"><option value="tilt" selected>Tilt (phone movement)</option><option value="eyes">Eye tracking (front camera)</option></select>
+      </label>
+      <label class="f">Motion sensitivity <span class="v" id="sensV"></span>
         <input type="range" id="sens" min="0.2" max="4" step="0.05" value="1">
       </label>
-      <label class="f">Tilt direction
+      <label class="f">Motion direction
         <select id="tdir"><option value="normal" selected>Normal</option><option value="reverse">Reversed</option></select>
       </label>
     </div>
@@ -479,6 +483,7 @@
 
   function compose(L, R, w, h, mode, ctx) {
     const c = ctx.canvas;
+    if (mode === 'window') { c.width = w; c.height = h; ctx.putImageData(new ImageData(L, w, h), 0, 0); return; }
     if (mode === 'anaglyph') {
       c.width = w; c.height = h;
       const o = new ImageData(w, h), d = o.data;
@@ -505,7 +510,7 @@
   function composeDepth(zL, zR, w, h, mode, ctx) {
     const c = ctx.canvas, toImg = (z) => { const o = new ImageData(w, h), d = o.data;
       for (let i = 0; i < w * h; i++) { const v = z[i] * 255; d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255; } return o; };
-    if (mode === 'anaglyph') { c.width = w; c.height = h; ctx.putImageData(toImg(zL), 0, 0); return; }
+    if (mode === 'anaglyph' || mode === 'window') { c.width = w; c.height = h; ctx.putImageData(toImg(zL), 0, 0); return; }
     const a = mode === 'cross' ? zR : zL, b = mode === 'cross' ? zL : zR;
     if (mode === 'overunder') { c.width = w; c.height = h * 2; ctx.putImageData(toImg(a), 0, 0); ctx.putImageData(toImg(b), 0, h); }
     else { c.width = w * 2; c.height = h; ctx.putImageData(toImg(a), 0, 0); ctx.putImageData(toImg(b), w, 0); }
@@ -938,10 +943,10 @@
     const venc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { encErr = e; } });
     venc.configure(vc.cfg);
     // depth video: same layout as the 3D video (red/cyan: one picture)
-    const DW = mode === 'anaglyph' ? w : W, DH = mode === 'anaglyph' ? h : H;
+    const DW = mode === 'anaglyph' || mode === 'window' ? w : W, DH = mode === 'anaglyph' || mode === 'window' ? h : H;
     let dTarget = null, dMuxer = null, dEnc = null;
     try {
-      const dvc = mode === 'anaglyph' ? await pickVideoCodec(DW, DH, fps) : vc;
+      const dvc = mode === 'anaglyph' || mode === 'window' ? await pickVideoCodec(DW, DH, fps) : vc;
       if (dvc) {
         dTarget = new Mp4Muxer.ArrayBufferTarget();
         dMuxer = new Mp4Muxer.Muxer({ target: dTarget, fastStart: 'in-memory', firstTimestampBehavior: 'offset', video: { codec: dvc.mux, width: DW, height: DH, frameRate: fps } });
@@ -1206,7 +1211,78 @@
     const k = parseFloat($('sens').value) / 25;
     look = [Math.max(-2, Math.min(2, sx * k)), Math.max(-2, Math.min(2, -sy * k))];
   }
+
+  // ---------- eye tracking with the front camera ----------
+  // Finds the eyes ~30 times a second. Head position moves the viewpoint, distance scales the depth,
+  // and head tilt turns the direction of the 3D push (plus the image placement) to match the eyes.
+  let eyesOn = false, faceMesh = null, camStream = null, camVideo = null, eyeBase = null;
+  let headRoll = 0, depthMul = 1, eyeLoopBusy = false;
+  function loadScriptOnce(src) {
+    return new Promise((res, rej) => {
+      if ([...document.scripts].some(x => x.src.endsWith(src))) return res();
+      const el = document.createElement('script'); el.src = src; el.onload = res; el.onerror = () => rej(new Error('couldn\'t load ' + src));
+      document.head.appendChild(el);
+    });
+  }
+  function onFace(r) {
+    const lm = r.multiFaceLandmarks && r.multiFaceLandmarks[0];
+    if (!lm || !eyesOn) return;
+    // iris centres (468, 473); flip x so it matches the screen the viewer is looking at
+    const a = lm[468] || lm[33], b = lm[473] || lm[263];
+    const A = { x: 1 - a.x, y: a.y }, B = { x: 1 - b.x, y: b.y };
+    const L = A.x < B.x ? A : B, R = A.x < B.x ? B : A;
+    const aspect = camVideo.videoWidth / Math.max(1, camVideo.videoHeight);
+    const mid = { x: (L.x + R.x) / 2, y: (L.y + R.y) / 2 };
+    const ipd = Math.hypot((R.x - L.x) * aspect, R.y - L.y);
+    const roll = Math.atan2(R.y - L.y, (R.x - L.x) * aspect);
+    if (!eyeBase) eyeBase = { x: mid.x, y: mid.y, ipd, roll: 0 };
+    const k = parseFloat($('sens').value) / 0.15;
+    look = [Math.max(-2, Math.min(2, (mid.x - eyeBase.x) * k)), Math.max(-2, Math.min(2, (mid.y - eyeBase.y) * k))];
+    depthMul = Math.max(0.4, Math.min(2.5, ipd / eyeBase.ipd));
+    headRoll = Math.max(-0.7, Math.min(0.7, roll));
+  }
+  async function startEyes() {
+    $('tiltNote').textContent = 'Starting the front camera…';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('this browser has no camera access');
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+    camVideo = document.createElement('video');
+    camVideo.playsInline = true; camVideo.setAttribute('playsinline', ''); camVideo.muted = true;
+    camVideo.style.cssText = 'position:fixed;left:0;bottom:0;width:4px;height:4px;opacity:0.01;pointer-events:none;z-index:-1';
+    camVideo.srcObject = camStream; document.body.appendChild(camVideo);
+    await camVideo.play();
+    if (!faceMesh) {
+      $('tiltNote').textContent = 'Loading eye tracking (about 10 MB the first time)…';
+      await loadScriptOnce('facemesh/face_mesh.js');
+      faceMesh = new FaceMesh({ locateFile: (f) => 'facemesh/' + f });
+      faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+      faceMesh.onResults(onFace);
+      await faceMesh.initialize();
+    }
+    eyesOn = true; eyeBase = null;
+    $('tiltNote').textContent = 'Eye tracking is on. Move your head to look around; lean in for more depth. Tap the picture to turn it off.';
+    (async function loop() {
+      if (!eyesOn) return;
+      if (!eyeLoopBusy && camVideo.readyState >= 2) {
+        eyeLoopBusy = true;
+        try { await faceMesh.send({ image: camVideo }); } catch (e) { console.warn(e); }
+        eyeLoopBusy = false;
+      }
+      setTimeout(loop, 30);
+    })();
+  }
+  function stopEyes() {
+    eyesOn = false; eyeBase = null; look = [0, 0]; headRoll = 0; depthMul = 1;
+    try { camStream && camStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+    try { camVideo && camVideo.remove(); } catch (e) {}
+    camStream = null; camVideo = null;
+  }
+
   async function onViewTap() {
+    if (eyesOn) { stopEyes(); $('tiltNote').textContent = 'Eye tracking is off. Tap the picture to turn motion back on.'; return; }
+    if (!tiltOn && $('motion').value === 'eyes') {
+      try { await startEyes(); } catch (e) { stopEyes(); $('tiltNote').textContent = 'Eye tracking couldn\'t start: ' + (e.message || e); }
+      return;
+    }
     if (tiltOn) {
       window.removeEventListener('deviceorientation', onOrient);
       tiltOn = false; curR = null; baseR = null; look = [0, 0];
@@ -1224,7 +1300,7 @@
     } catch (e) { $('tiltNote').textContent = 'This browser won\'t share motion: ' + (e.message || e); }
   }
   function onViewMouse(e) {   // computers: the mouse stands in for tilt
-    if (curR) return;
+    if (curR || eyesOn) return;
     const r = lc.getBoundingClientRect();
     look = [((e.clientX - r.left) / r.width - 0.5) * 2, ((e.clientY - r.top) / r.height - 0.5) * 2];
   }
@@ -1435,6 +1511,15 @@
     else { v.pause(); $('playLive').textContent = 'Play'; }
   };
 
+  // 3D push for one eye: along the line between the viewer's eyes (head tilt aware), scaled by how close they are,
+  // plus the viewpoint offset from tilt or head position. Window output has no left/right push.
+  function eyeShift(k, ew, eh) {
+    const strength = parseFloat($('str').value) / 100 * depthMul, sign = k === 0 ? 1 : -1;
+    const dir = $('tdir').value === 'reverse' ? 1 : -1;
+    const half = fmt === 'window' ? 0 : sign * strength / 2;
+    const motion = 0.05 * (eyesOn ? depthMul : 1);
+    return [half * Math.cos(headRoll) + dir * smooth[0] * motion, half * Math.sin(headRoll) * (ew / eh) + dir * smooth[1] * motion];
+  }
   function drawEye(x, y, w, h, eye, p, ew, eh, rect) {
     gl.viewport(x, y, w, h);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, rect ? texImg[0] : texImg[eye]);
@@ -1454,10 +1539,8 @@
       gl.uniform4f(U('ffit'), m.fit[0], m.fit[1], m.fit[2], m.fit[3]);
       gl.uniform1f(U('famount'), parseFloat($('famt').value) / 100);
     }
-    const strength = parseFloat($('str').value) / 100, sign = eye === 0 ? 1 : -1;
-    // turning moves the viewpoint (5% of the width per 25 degrees at sensitivity 1); separate from depth strength
-    const dir = $('tdir').value === 'reverse' ? 1 : -1;
-    gl.uniform2f(U('shift'), sign * strength / 2 + dir * smooth[0] * 0.05, dir * smooth[1] * 0.05);
+    const sh = eyeShift(eye, ew, eh);
+    gl.uniform2f(U('shift'), sh[0], sh[1]);
     gl.uniform1f(U('focus'), p.focus);
     gl.uniform1f(U('contrast'), 1 / Math.max(0.002, 1 - p.contrast));
     gl.uniform1f(U('frameOn'), p.frame ? 1 : 0);
@@ -1526,9 +1609,10 @@
       }
       ew = img.w; eh = img.h;
     }
-    smooth[0] += (look[0] - smooth[0]) * 0.2; smooth[1] += (look[1] - smooth[1]) * 0.2;
+    const sm = eyesOn ? 0.35 : 0.2;
+    smooth[0] += (look[0] - smooth[0]) * sm; smooth[1] += (look[1] - smooth[1]) * sm;
     // canvas has the same shape as the saved output
-    const OW = fmt === 'parallel' || fmt === 'cross' ? ew * 2 : ew, OH = fmt === 'overunder' ? eh * 2 : eh;
+    const OW = fmt === 'parallel' || fmt === 'cross' ? ew * 2 : ew, OH = fmt === 'overunder' ? eh * 2 : eh;   // window / red-cyan: one picture
     const sc = Math.min(1, 2048 / Math.max(OW, OH)), W = Math.round(OW * sc), H = Math.round(OH * sc);
     if (lc.width !== W || lc.height !== H) { lc.width = W; lc.height = H; }
     const p = params(ew);
@@ -1549,10 +1633,14 @@
       const hh = Math.floor(H / 2);
       draw(0, H - hh, W, hh, 0);   // GL origin is bottom-left, so this is the top half: left eye
       draw(0, 0, W, hh, 1);
+    } else if (fmt === 'window') {
+      draw(0, 0, W, H, 0);
     } else {
       const half = Math.floor(W / 2), first = fmt === 'cross' ? 1 : 0;
-      draw(0, 0, half, H, first);
-      draw(half, 0, W - half, H, 1 - first);
+      // with the head tilted, one eye sits lower: move the two pictures up/down so each stays in front of its eye
+      const off = Math.round((W / 2) * Math.tan(headRoll) / 2) * (fmt === 'cross' ? -1 : 1);
+      draw(0, off, half, H, first);
+      draw(half, -off, W - half, H, 1 - first);
     }
   }
   // a normal photo: both eyes come from one picture and one depth map, shifted opposite ways
@@ -1561,9 +1649,8 @@
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texImg[0]);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep[0]);
     gl.uniform4f(U('rect'), 0, 0, 1, 1); gl.uniform4f(U('drect'), 0, 0, 1, 1); gl.uniform1f(U('mixOn'), 0);
-    const strength = parseFloat($('str').value) / 100, sign = k === 0 ? 1 : -1;
-    const dir = $('tdir').value === 'reverse' ? 1 : -1;
-    gl.uniform2f(U('shift'), sign * strength / 2 + dir * smooth[0] * 0.05, dir * smooth[1] * 0.05);
+    const sh = eyeShift(k, ew, eh);
+    gl.uniform2f(U('shift'), sh[0], sh[1]);
     gl.uniform1f(U('focus'), p.focus);
     gl.uniform1f(U('contrast'), 1 / Math.max(0.002, 1 - p.contrast));
     gl.uniform1f(U('frameOn'), p.frame ? 1 : 0);
@@ -1576,7 +1663,9 @@
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
   requestAnimationFrame(viewFrame);
-  $('recenter').onclick = () => { baseR = curR; look = [0, 0]; };
+  $('recenter').onclick = () => { baseR = curR; eyeBase = null; look = [0, 0]; };
+  $('motion').onchange = () => { if (eyesOn) stopEyes(); if (tiltOn) { window.removeEventListener('deviceorientation', onOrient); tiltOn = false; curR = null; baseR = null; look = [0, 0]; }
+    $('tiltNote').textContent = 'Tap the picture to turn on ' + ($('motion').value === 'eyes' ? 'eye tracking.' : 'tilt.'); };
   const updTilt = () => { $('sensV').textContent = parseFloat($('sens').value).toFixed(2) + '×'; };
   $('sens').oninput = updTilt; updTilt();
 
