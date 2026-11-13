@@ -2,210 +2,337 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
 <title>21st Dimension</title>
 <link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0e0f11; --panel: #16181b; --line: #26292e; --text: #e8e6e3; --dim: #8b8f96;
-    --accent: #e8e6e3; --red: #ff5a4e; --cyan: #3ad4e0;
+    --bg: #000; --fg: #fff; --dim: #8c8c8c; --line: #2b2b2b; --panel: #0b0b0b; --panel2: #141414;
+    --red: #ff3b3b; --cyan: #00e1ff;
+    --cut: 12px;
+    --chamfer: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+    --font: "Chakra Petch", ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+    /* names the script still uses */
+    --text: var(--fg);
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; }
-  main { max-width: 980px; margin: 0 auto; padding: 28px 18px 60px; }
-  h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px; }
-  h1 .r { color: var(--red); font-size: 12px; vertical-align: middle; margin-left: 6px; } h1 .c { color: var(--cyan); font-size: 12px; vertical-align: middle; margin-left: -2px; }
-  .sub { color: var(--dim); margin: 0 0 22px; font-size: 14px; }
-  .drop { display: block; border: 1px dashed #3a3e45; border-radius: 12px; padding: 34px 18px; text-align: center;
-    cursor: pointer; transition: border-color .15s, background .15s; background: var(--panel); }
-  .drop:hover, .drop.over { border-color: var(--text); background: #1b1e22; }
-  .drop b { font-weight: 600; } .drop small { display: block; color: var(--dim); margin-top: 6px; }
-  input[type=file] { display: none; }
-  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 16px; }
-  .row { display: flex; flex-wrap: wrap; gap: 18px 26px; align-items: flex-end; }
-  label.f, div.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--dim);
-    text-transform: uppercase; letter-spacing: .06em; min-width: 150px; flex: 1; }
-  label.f span.v { color: var(--text); text-transform: none; letter-spacing: 0; float: right; }
-  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .seg button { flex: 1; background: transparent; color: var(--dim); border: 0; padding: 8px 10px; font: inherit;
-    font-size: 13px; cursor: pointer; white-space: nowrap; }
-  .seg button + button { border-left: 1px solid var(--line); }
-  .seg button.on { background: var(--text); color: var(--bg); }
-  input[type=range] { width: 100%; accent-color: var(--text); }
-  select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; font-size: 14px; }
-  .btn { background: var(--text); color: var(--bg); border: 0; border-radius: 8px; padding: 10px 16px; font: inherit;
-    font-weight: 600; font-size: 14px; cursor: pointer; }
-  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
-  .btn:disabled { opacity: .4; cursor: default; }
-  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
-  .status { color: var(--dim); font-size: 13px; margin-top: 10px; min-height: 18px; }
-  .bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 10px; }
-  .bar i { display: block; height: 100%; width: 0; background: var(--text); transition: width .2s; }
-  .out { margin-top: 16px; }
-  .out canvas, .out video { width: 100%; height: auto; display: block; border-radius: 8px; background: #000; }
-  .thumbs { display: flex; gap: 12px; margin-top: 12px; align-items: flex-start; }
-  .thumbs figure { margin: 0; flex: 0 0 160px; }
-  .thumbs canvas { width: 160px; border-radius: 6px; display: block; }
-  .thumbs figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
-  .note { font-size: 13px; color: var(--dim); }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font); }
+  main { max-width: 980px; margin: 0 auto; padding: calc(14px + env(safe-area-inset-top)) 16px calc(60px + env(safe-area-inset-bottom)); }
   .hide { display: none !important; }
-  .tip { font-size: 13px; color: var(--dim); line-height: 1.5; margin-top: 4px; }
+  input[type=file] { display: none; }
+
+  /* ---------- logo: anaglyph ghosting ---------- */
+  .logo { font-weight: 700; letter-spacing: .14em; text-transform: uppercase; position: relative; display: inline-block;
+    text-shadow: -2px 0 var(--red), 2px 0 var(--cyan); animation: ghost 3.2s ease-in-out infinite; }
+  @keyframes ghost { 0%,100% { text-shadow: -2px 0 var(--red), 2px 0 var(--cyan); } 50% { text-shadow: -4px 0 var(--red), 4px 0 var(--cyan); } }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .top .logo { font-size: 15px; }
+
+  /* ---------- buttons ---------- */
+  .btn { font: 600 13px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: #000; background: var(--fg);
+    border: 0; padding: 12px 18px; cursor: pointer; clip-path: var(--chamfer); --cut: 9px; transition: transform .12s, opacity .15s; }
+  .btn:active { transform: translateY(1px) scale(.98); }
+  .btn.ghost { color: var(--fg); background: var(--panel2); box-shadow: inset 0 0 0 1px #3a3a3a; }
+  .btn.ghost:hover { background: #1f1f1f; }
+  .btn:disabled { opacity: .35; cursor: default; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+  .note { font-size: 12.5px; color: var(--dim); }
+
+  /* ---------- start ---------- */
+  #start { min-height: 70vh; display: flex; flex-direction: column; justify-content: center; gap: 18px; }
+  .drop { position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 48px 20px 40px; text-align: center; cursor: pointer;
+    background: var(--panel); clip-path: polygon(28px 0, 100% 0, 100% calc(100% - 28px), calc(100% - 28px) 100%, 0 100%, 0 28px);
+    box-shadow: inset 0 0 0 1px #2f2f2f; transition: background .15s; overflow: hidden; }
+  .drop:hover, .drop.over { background: #121212; }
+  .drop b { font-size: 20px; letter-spacing: .12em; }
+  .drop small { color: var(--dim); font-size: 12.5px; letter-spacing: .04em; }
+  .drop .lines { position: absolute; inset: 0; pointer-events: none; opacity: .5; }
+  .sub { color: var(--dim); font-size: 13px; text-align: center; margin: 0; }
+
+  /* ---------- 3D loaders: wireframe cube + parallax stripes ---------- */
+  .stage { perspective: 420px; display: grid; place-items: center; }
+  .cube { --s: 54px; width: var(--s); height: var(--s); position: relative; transform-style: preserve-3d; animation: spin 3.6s cubic-bezier(.55,.1,.45,.9) infinite; }
+  .cube.small { --s: 18px; animation-duration: 2.4s; }
+  .cube i { position: absolute; inset: 0; border: 2px solid var(--fg); box-shadow: -2px 0 0 rgba(255,59,59,.55), 2px 0 0 rgba(0,225,255,.55); }
+  .cube.small i { border-width: 1.5px; box-shadow: -1px 0 0 rgba(255,59,59,.6), 1px 0 0 rgba(0,225,255,.6); }
+  .cube i:nth-child(1) { transform: translateZ(calc(var(--s) / 2)); }
+  .cube i:nth-child(2) { transform: rotateY(180deg) translateZ(calc(var(--s) / 2)); }
+  .cube i:nth-child(3) { transform: rotateY(90deg) translateZ(calc(var(--s) / 2)); }
+  .cube i:nth-child(4) { transform: rotateY(-90deg) translateZ(calc(var(--s) / 2)); }
+  .cube i:nth-child(5) { transform: rotateX(90deg) translateZ(calc(var(--s) / 2)); }
+  .cube i:nth-child(6) { transform: rotateX(-90deg) translateZ(calc(var(--s) / 2)); }
+  @keyframes spin { 0% { transform: rotateX(-22deg) rotateY(0); } 50% { transform: rotateX(28deg) rotateY(180deg); } 100% { transform: rotateX(-22deg) rotateY(360deg); } }
+
+  /* angled progress bar; while busy, two stripe layers slide at different speeds (parallax) */
+  .pbar { position: relative; height: 12px; flex: 1; min-width: 80px; transform: skewX(-24deg); box-shadow: inset 0 0 0 1px #4a4a4a; overflow: hidden; background: #0a0a0a; }
+  .pbar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--fg); transition: width .25s; }
+  .pbar::before, .pbar::after { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .pbar::before { background: repeating-linear-gradient(90deg, transparent 0 14px, rgba(255,255,255,.22) 14px 18px); animation: slide 1.6s linear infinite; }
+  .pbar::after { background: repeating-linear-gradient(90deg, transparent 0 34px, rgba(255,255,255,.12) 34px 46px); animation: slide 3.2s linear infinite reverse; }
+  .busy .pbar::before, .busy .pbar::after, #boot .pbar::before, #boot .pbar::after { opacity: 1; }
+  @keyframes slide { from { background-position: 0 0; } to { background-position: 92px 0; } }
+
+  /* ---------- boot screen ---------- */
+  #boot { position: fixed; inset: 0; z-index: 100; background: #000; display: grid; place-items: center; overflow: hidden; transition: opacity .5s; }
+  #boot.gone { opacity: 0; pointer-events: none; }
+  #boot .par { position: absolute; inset: -60%; pointer-events: none; will-change: transform; }
+  #boot .p1 { background: repeating-linear-gradient(115deg, transparent 0 46px, rgba(255,255,255,.05) 46px 47px); animation: drift1 3s linear infinite; }
+  #boot .p2 { background: repeating-linear-gradient(115deg, transparent 0 90px, rgba(255,255,255,.08) 90px 92px); animation: drift2 2.6s linear infinite; }
+  #boot .p3 { background: repeating-linear-gradient(115deg, transparent 0 170px, rgba(255,255,255,.12) 170px 174px); animation: drift3 1.8s linear infinite; }
+  @keyframes drift1 { to { translate: 51.86px 0; } }
+  @keyframes drift2 { to { translate: 101.51px 0; } }
+  @keyframes drift3 { to { translate: 191.99px 0; } }
+  .bootIn { position: relative; display: flex; flex-direction: column; align-items: center; gap: 28px; width: min(86vw, 380px); }
+  .bootIn .logo { font-size: 26px; text-align: center; }
+  .bootIn .pbar { width: 100%; flex: none; height: 14px; }
+  .bootTxt { color: var(--dim); font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; text-align: center; min-height: 1.4em; }
+
+  /* ---------- workspace ---------- */
+  .viewer { position: relative; }
+  .out canvas, .out video { width: 100%; height: auto; display: block; background: #000; }
+  #view { clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px); touch-action: manipulation; }
+  .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .tools .note { flex: 1 1 180px; }
+  .strip { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 10px 14px; background: var(--panel); clip-path: var(--chamfer); --cut: 10px; }
+  .strip .stage { width: 22px; height: 22px; perspective: 160px; display: none; }
+  .strip.busy .stage { display: grid; }
+  .strip .pbar { height: 8px; flex: 0 0 34%; }
+  .status { color: #cfcfcf; font-size: 12.5px; flex: 1; min-width: 0; }
+
+  .card { margin-top: 12px; padding: 14px; background: var(--panel); clip-path: var(--chamfer); --cut: 14px; box-shadow: inset 0 0 0 1px #262626; }
+  .card h3 { margin: 0 0 4px; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .thumbs { display: flex; gap: 12px; margin-top: 12px; align-items: flex-start; }
+  .thumbs figure { margin: 0; flex: 0 0 120px; }
+  .thumbs canvas { width: 120px; display: block; clip-path: var(--chamfer); --cut: 8px; }
+  .thumbs figcaption { font-size: 11px; color: var(--dim); margin-top: 4px; letter-spacing: .04em; }
+  #vidPreview, #vidResult { margin-top: 12px; clip-path: var(--chamfer); }
+
+  /* ---------- settings: folding, angled tabs ---------- */
+  details { margin-top: 10px; background: var(--panel); clip-path: var(--chamfer); --cut: 12px; box-shadow: inset 0 0 0 1px #232323; }
+  summary { list-style: none; cursor: pointer; padding: 13px 16px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; font-size: 13px;
+    display: flex; align-items: center; gap: 10px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: ""; width: 8px; height: 8px; border-right: 2px solid var(--fg); border-bottom: 2px solid var(--fg); transform: rotate(-45deg); transition: transform .2s; }
+  details[open] summary::before { transform: rotate(45deg); }
+  summary .sv { margin-left: auto; color: var(--dim); font-weight: 500; letter-spacing: .04em; text-transform: none; font-size: 12px; }
+  .inner { padding: 4px 16px 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px 22px; align-items: flex-end; margin-top: 10px; }
+  label.f, div.f { display: flex; flex-direction: column; gap: 8px; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .12em; min-width: 150px; flex: 1; }
+  label.f span.v { color: var(--fg); letter-spacing: .04em; float: right; }
+  .tip { font-size: 12px; color: var(--dim); line-height: 1.5; margin: 12px 0 0; }
+
+  /* segmented controls as slanted blocks */
+  .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+  .seg button { flex: 1 1 auto; font: 600 12px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); background: var(--panel2);
+    border: 0; padding: 11px 12px; cursor: pointer; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); white-space: nowrap; }
+  .seg button.on { background: var(--fg); color: #000; }
+
+  select { appearance: none; -webkit-appearance: none; font: 500 13px/1.2 var(--font); color: var(--fg); background: var(--panel2); border: 0; padding: 11px 32px 11px 12px;
+    clip-path: var(--chamfer); --cut: 7px; background-image: linear-gradient(45deg, transparent 50%, #fff 50%), linear-gradient(135deg, #fff 50%, transparent 50%);
+    background-position: calc(100% - 16px) 52%, calc(100% - 11px) 52%; background-size: 5px 5px; background-repeat: no-repeat; }
+
+  /* sliders: hairline track, diamond thumb */
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; }
+  input[type=range]::-webkit-slider-runnable-track { height: 2px; background: #3a3a3a; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -6px; background: var(--fg); transform: rotate(45deg); border: 0; }
+  input[type=range]::-moz-range-track { height: 2px; background: #3a3a3a; }
+  input[type=range]::-moz-range-thumb { width: 12px; height: 12px; background: var(--fg); border: 0; border-radius: 0; transform: rotate(45deg); }
+
+  textarea { width: 100%; margin-top: 10px; background: #000; color: var(--fg); border: 0; box-shadow: inset 0 0 0 1px #333; padding: 10px; font: 12.5px/1.4 ui-monospace, monospace; }
 </style>
 </head>
 <body>
+<div id="boot">
+  <div class="par p1"></div><div class="par p2"></div><div class="par p3"></div>
+  <div class="bootIn">
+    <div class="stage" style="height:90px"><div class="cube"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="logo">21st Dimension</div>
+    <div class="pbar"><i id="bootBar"></i></div>
+    <div class="bootTxt" id="bootTxt">Warming up the depth engine…</div>
+  </div>
+</div>
+
 <main>
-  <h1>21st Dimension <span class="r">●</span><span class="c">●</span></h1>
-  <p class="sub">One photo or video in, a stereoscopic pair out. Depth is estimated on your device with Depth Anything V2; nothing is uploaded.</p>
-
-  <label class="drop" id="drop">
-    <input type="file" id="file" accept="image/*,video/*">
-    <b>Choose or drop an image or video</b>
-    <small id="dropNote">JPG, PNG, HEIC (if your browser reads it), MP4, MOV, WebM</small>
-  </label>
-
-  <div style="margin-top:12px">
-    <div class="seg" id="inSeg">
-      <button data-v="auto" class="on">Auto-detect</button>
-      <button data-v="mono">Normal</button>
-      <button data-v="sbs">Already 3D</button>
-      <button data-v="ou">3D over-under</button>
-    </div>
-    <select id="inMode" class="hide"><option value="auto" selected>Auto-detect</option><option value="mono">Normal</option><option value="sbs">Already 3D (side-by-side)</option><option value="cross">Cross-eye 3D</option><option value="ou">3D over-under</option></select>
-    <div class="note" id="detNote" style="margin-top:6px">Tap "Already 3D" for a side-by-side 3D file, or leave it on Auto-detect.</div>
+  <div class="top">
+    <div class="logo">21st Dimension</div>
+    <button class="btn ghost hide" id="openNew">Open another</button>
   </div>
 
-  <section class="out hide" id="imgOut">
-    <canvas id="view" style="width:100%;display:block;border-radius:8px;background:#000;touch-action:manipulation"></canvas>
-    <canvas id="outCanvas" class="hide" style="width:100%"></canvas>
-    <div class="actions" style="margin-top:8px">
-      <button class="btn ghost" id="recenter">Re-center</button>
-      <span class="note" id="tiltNote">Tap the picture to turn on eye tracking (or tilt, chosen in settings).</span>
-    </div>
-    <div class="thumbs">
-      <figure><canvas id="depthCanvas"></canvas><figcaption>Depth map (bright = near)</figcaption></figure>
-      <div class="actions" style="margin-top:0;flex:1">
+  <section id="start">
+    <label class="drop" id="drop">
+      <svg class="lines" viewBox="0 0 400 300" preserveAspectRatio="none" aria-hidden="true">
+        <g stroke="#fff" stroke-width="1" fill="none" opacity=".25"><path d="M0 220 L400 120"/><path d="M0 250 L400 160"/><path d="M0 280 L400 200"/></g>
+      </svg>
+      <input type="file" id="file" accept="image/*,video/*">
+      <div class="stage" style="height:70px"><div class="cube" style="--s:44px"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+      <b>Open a photo or video</b>
+      <small id="dropNote">Normal or already 3D · JPG · PNG · HEIC · MP4 · MOV</small>
+    </label>
+    <p class="sub">Depth is worked out on your phone. Nothing is uploaded.</p>
+  </section>
+
+  <section id="work" class="hide">
+    <section class="out viewer hide" id="imgOut">
+      <canvas id="view"></canvas>
+      <canvas id="outCanvas" class="hide" style="width:100%"></canvas>
+      <div class="tools">
         <button class="btn hide" id="playLive">Pause</button>
-        <button class="btn" id="saveImg">Save image</button>
-        <button class="btn ghost" id="saveDepth">Save depth map</button>
-        <span class="note" id="saveNote"></span>
+        <button class="btn ghost" id="motionBtn">Eye tracking</button>
+        <button class="btn ghost" id="recenter">Re-center</button>
+        <span class="note" id="tiltNote">Tap the picture or Eye tracking to start.</span>
       </div>
-    </div>
-  </section>
-
-  <section class="out hide" id="vidOut">
-    <div class="actions" style="margin-top:0">
-      <button class="btn" id="startVid" disabled>Convert video</button>
-      <button class="btn ghost" id="previewVid" disabled>Preview a frame</button>
-      <button class="btn ghost" id="allowTilt" disabled>Calculate depth for tilt</button>
-      <label class="btn ghost hide" id="depthUp">Add depth video<input type="file" id="depthFile" accept="video/*"></label>
-      <button class="btn ghost hide" id="cancelVid">Stop and keep</button>
-      <span class="note" id="vidInfo"></span>
-    </div>
-    <canvas id="vidPreview" class="hide" style="margin-top:14px"></canvas>
-    <video id="vidResult" class="hide" controls playsinline loop style="margin-top:14px"></video>
-    <div class="actions">
-      <button class="btn hide" id="saveVid">Save MP4</button>
-      <button class="btn ghost hide" id="saveDepthVid">Save depth MP4</button>
-      <span class="note" id="vidSaveNote"></span>
-    </div>
-  </section>
-
-  <div class="panel">
-    <div class="row">
-      <div class="f" style="flex:2;min-width:260px">Output
-        <div class="seg" id="fmt">
-          <button data-v="parallel" class="on">Parallel</button>
-          <button data-v="cross">Cross-eye</button>
-          <button data-v="anaglyph">Red/Cyan</button>
-          <button data-v="overunder">Over-under</button>
-          <button data-v="window">Window</button>
+      <div class="thumbs">
+        <figure><canvas id="depthCanvas"></canvas><figcaption>Depth · bright = near</figcaption></figure>
+        <div class="actions" style="margin-top:0;flex:1">
+          <button class="btn" id="saveImg">Save image</button>
+          <button class="btn ghost" id="saveDepth">Save depth map</button>
+          <span class="note" id="saveNote"></span>
         </div>
       </div>
-      <label class="f">Depth detail
-        <select id="q"><option value="518" selected>High</option><option value="392">Medium (~2× faster)</option><option value="252">Low (~5× faster)</option></select>
-      </label>
-      <label class="f">Depth strength <span class="v" id="strV"></span>
-        <input type="range" id="str" min="0" max="40" step="0.1" value="3">
-      </label>
-      <label class="f">Screen plane <span class="v" id="focV"></span>
-        <input type="range" id="foc" min="-0.5" max="1.5" step="0.01" value="0.35">
-      </label>
-      <label class="f">Depth contrast <span class="v" id="crvV"></span>
-        <input type="range" id="crv" min="0" max="100" step="1" value="0">
-      </label>
-    </div>
-    <div class="row" style="margin-top:16px">
-      <label class="f">Pop-out frame
-        <select id="frm"><option value="off" selected>Off</option><option value="black">Black</option><option value="white">White</option></select>
-      </label>
-      <label class="f">Frame size <span class="v" id="fszV"></span>
-        <input type="range" id="fsz" min="2" max="25" step="0.5" value="8">
-      </label>
-      <label class="f">Break-out depth <span class="v" id="fthrV"></span>
-        <input type="range" id="fthr" min="0" max="100" step="1" value="55">
-      </label>
-    </div>
-    <div class="row" style="margin-top:16px">
-      <label class="f">Motion
-        <select id="motion"><option value="eyes" selected>Eye tracking (front camera)</option><option value="tilt">Tilt (phone movement)</option></select>
-      </label>
-      <label class="f">Motion sensitivity <span class="v" id="sensV"></span>
-        <input type="range" id="sens" min="0.2" max="4" step="0.05" value="1">
-      </label>
-      <label class="f">Motion direction
-        <select id="tdir"><option value="normal" selected>Normal</option><option value="reverse">Reversed</option></select>
-      </label>
-    </div>
-    <div class="row hide" id="vidOpts" style="margin-top:16px">
-      <label class="f">Frame rate
-        <select id="fps"><option value="8">8 fps</option><option value="12">12 fps</option><option value="15" selected>15 fps</option><option value="24">24 fps</option><option value="30">30 fps</option></select>
-      </label>
-      <label class="f">Width per eye
-        <select id="vw"><option value="640">640 px</option><option value="960" selected>960 px</option><option value="1280">1280 px</option><option value="1920">1920 px</option></select>
-      </label>
-      <label class="f">Speed
-        <select id="speed"><option value="normal" selected>Normal (depth every frame)</option><option value="fast">Fast (depth every 2nd frame)</option></select>
-      </label>
-      <label class="f">Range
-        <select id="range"><option value="all" selected>Whole video</option><option value="10">First 10 s</option><option value="5">First 5 s</option><option value="2">First 2 s (test)</option></select>
-      </label>
-    </div>
-    <p class="tip" id="tip">Screen plane: low sits the scene behind the screen, high makes it come out at you. Depth contrast pushes the far half of the depth map toward black and the near half toward white. Pop-out frame draws a border around the picture; anything nearer than the break-out depth is drawn over it, so it bursts out of the frame.</p>
-    <div class="bar"><i id="bar"></i></div>
-    <div class="status" id="status">Loading depth model…</div>
-    <div class="actions">
-      <button class="btn ghost" id="copySettings">Copy settings for Claude</button>
-      <span class="note" id="copyNote">Long video? Send it to Claude in the chat with these settings, and it gets converted in the cloud while your phone is free.</span>
-    </div>
-    <textarea id="settingsText" class="hide" readonly rows="3" style="width:100%;margin-top:10px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font:13px/1.4 ui-monospace,monospace"></textarea>
-  </div>
+    </section>
 
-  <div class="panel" id="mixPanel">
-    <div style="font-weight:600;margin-bottom:4px">Mix two videos</div>
-    <div class="note">Each 3D video needs its depth video (the -depth MP4). The foreground is laid over the background, nearest parts first.</div>
-    <div class="actions">
-      <label class="btn ghost">Background video<input type="file" id="mixBg" accept="video/*"></label>
-      <label class="btn ghost">Background depth<input type="file" id="mixBgD" accept="video/*"></label>
+    <div class="strip" id="strip">
+      <div class="stage"><div class="cube small"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+      <div class="pbar"><i id="bar"></i></div>
+      <div class="status" id="status">Loading depth model…</div>
     </div>
-    <div class="note" id="mixBgNote">No background yet.</div>
-    <div class="actions">
-      <label class="btn ghost">Foreground video<input type="file" id="mixFg" accept="video/*"></label>
-      <label class="btn ghost">Foreground depth<input type="file" id="mixFgD" accept="video/*"></label>
-    </div>
-    <div class="note" id="mixFgNote">No foreground yet.</div>
-    <div class="row" style="margin-top:12px">
-      <label class="f">Foreground amount <span class="v" id="famtV"></span>
-        <input type="range" id="famt" min="0" max="100" step="1" value="50">
-      </label>
-    </div>
-    <div class="actions">
-      <button class="btn" id="mixStart" disabled>Show mix</button>
-      <span class="note" id="mixNote"></span>
-    </div>
+
+    <section class="out card hide" id="vidOut">
+      <h3>Next</h3>
+      <div class="note" id="nextHint"></div>
+      <div class="actions">
+        <button class="btn" id="startVid" disabled>Make 3D video</button>
+        <button class="btn ghost" id="allowTilt" disabled>Calculate depth</button>
+        <label class="btn ghost hide" id="depthUp">Add depth video<input type="file" id="depthFile" accept="video/*"></label>
+        <button class="btn ghost" id="previewVid" disabled>Preview a frame</button>
+        <button class="btn ghost hide" id="cancelVid">Stop and keep</button>
+        <span class="note" id="vidInfo"></span>
+      </div>
+      <canvas id="vidPreview" class="hide"></canvas>
+      <video id="vidResult" class="hide" controls playsinline loop></video>
+      <div class="actions">
+        <button class="btn hide" id="saveVid">Save MP4</button>
+        <button class="btn ghost hide" id="saveDepthVid">Save depth MP4</button>
+        <span class="note" id="vidSaveNote"></span>
+      </div>
+    </section>
+
+    <details open>
+      <summary>3D <span class="sv" id="sv3d"></span></summary>
+      <div class="inner">
+        <div class="row">
+          <label class="f">Depth strength <span class="v" id="strV"></span>
+            <input type="range" id="str" min="0" max="40" step="0.1" value="3">
+          </label>
+          <label class="f">Screen plane <span class="v" id="focV"></span>
+            <input type="range" id="foc" min="-0.5" max="1.5" step="0.01" value="0.35">
+          </label>
+        </div>
+        <div class="row">
+          <label class="f">Depth contrast <span class="v" id="crvV"></span>
+            <input type="range" id="crv" min="0" max="100" step="1" value="0">
+          </label>
+          <label class="f">Depth detail
+            <select id="q"><option value="518" selected>High</option><option value="392">Medium (~2× faster)</option><option value="252">Low (~5× faster)</option></select>
+          </label>
+        </div>
+        <p class="tip" id="tip">Screen plane: low sits the scene behind the screen, high brings it out at you. Depth contrast pushes far toward black and near toward white.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Look <span class="sv" id="svLook"></span></summary>
+      <div class="inner">
+        <div class="f" style="margin-top:10px">Output
+          <div class="seg" id="fmt">
+            <button data-v="parallel" class="on">Parallel</button>
+            <button data-v="cross">Cross-eye</button>
+            <button data-v="anaglyph">Red/Cyan</button>
+            <button data-v="overunder">Over-under</button>
+            <button data-v="window">Window</button>
+          </div>
+        </div>
+        <div class="row">
+          <label class="f">Pop-out frame
+            <select id="frm"><option value="off" selected>Off</option><option value="black">Black</option><option value="white">White</option></select>
+          </label>
+          <label class="f">Frame size <span class="v" id="fszV"></span>
+            <input type="range" id="fsz" min="2" max="25" step="0.5" value="8">
+          </label>
+          <label class="f">Break-out depth <span class="v" id="fthrV"></span>
+            <input type="range" id="fthr" min="0" max="100" step="1" value="55">
+          </label>
+        </div>
+      </div>
+    </details>
+
+    <details>
+      <summary>Motion <span class="sv" id="svMotion"></span></summary>
+      <div class="inner">
+        <div class="row">
+          <label class="f">Motion
+            <select id="motion"><option value="eyes" selected>Eye tracking (front camera)</option><option value="tilt">Tilt (phone movement)</option></select>
+          </label>
+          <label class="f">Sensitivity <span class="v" id="sensV"></span>
+            <input type="range" id="sens" min="0.2" max="4" step="0.05" value="1">
+          </label>
+          <label class="f">Direction
+            <select id="tdir"><option value="normal" selected>Normal</option><option value="reverse">Reversed</option></select>
+          </label>
+        </div>
+      </div>
+    </details>
+
+    <details>
+      <summary>Source <span class="sv" id="svSource"></span></summary>
+      <div class="inner">
+        <div class="seg" id="inSeg" style="margin-top:10px">
+          <button data-v="auto" class="on">Auto</button>
+          <button data-v="mono">Normal</button>
+          <button data-v="sbs">Already 3D</button>
+          <button data-v="ou">3D over-under</button>
+        </div>
+        <select id="inMode" class="hide"><option value="auto" selected>Auto-detect</option><option value="mono">Normal</option><option value="sbs">Already 3D (side-by-side)</option><option value="cross">Cross-eye 3D</option><option value="ou">3D over-under</option></select>
+        <div class="note" id="detNote" style="margin-top:8px">Auto-detect checks whether a file is already 3D.</div>
+      </div>
+    </details>
+
+    <details>
+      <summary>Export <span class="sv" id="svExport"></span></summary>
+      <div class="inner">
+        <div class="row hide" id="vidOpts">
+          <label class="f">Frame rate
+            <select id="fps"><option value="8">8 fps</option><option value="12">12 fps</option><option value="15" selected>15 fps</option><option value="24">24 fps</option><option value="30">30 fps</option></select>
+          </label>
+          <label class="f">Width per eye
+            <select id="vw"><option value="640">640 px</option><option value="960" selected>960 px</option><option value="1280">1280 px</option><option value="1920">1920 px</option></select>
+          </label>
+          <label class="f">Speed
+            <select id="speed"><option value="normal" selected>Normal (depth every frame)</option><option value="fast">Fast (depth every 2nd frame)</option></select>
+          </label>
+          <label class="f">Range
+            <select id="range"><option value="all" selected>Whole video</option><option value="10">First 10 s</option><option value="5">First 5 s</option><option value="2">First 2 s (test)</option></select>
+          </label>
+        </div>
+        <div class="actions">
+          <button class="btn ghost" id="copySettings">Copy settings for Claude</button>
+          <span class="note" id="copyNote">Long video? Send it to Claude in the chat with these settings and it's converted in the cloud.</span>
+        </div>
+        <textarea id="settingsText" class="hide" readonly rows="3"></textarea>
+      </div>
+    </details>
+  </section>
+
+  <div class="hide" id="mixPanel">
+    <input type="file" id="mixBg"><input type="file" id="mixBgD"><input type="file" id="mixFg"><input type="file" id="mixFgD">
+    <span id="mixBgNote"></span><span id="mixFgNote"></span><span id="famtV"></span><input type="range" id="famt" min="0" max="100" value="50">
+    <button id="mixStart" disabled></button><span id="mixNote"></span>
   </div>
 </main>
-
 
 <script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js"></script>
 <script>
@@ -218,8 +345,20 @@
   let img = null; // {w,h,rgba,depth}
   let videoFile = null, cancel = false, lastVideo = null, depthDirty = true;
 
-  const status = (t) => { $('status').textContent = t; };
-  const bar = (p) => { $('bar').style.width = (Math.max(0, Math.min(1, p)) * 100).toFixed(1) + '%'; };
+  let booting = true;
+  const status = (t) => { $('status').textContent = t; if (booting) $('bootTxt').textContent = t; };
+  const bar = (p) => {
+    const w = (Math.max(0, Math.min(1, p)) * 100).toFixed(1) + '%';
+    $('bar').style.width = w; if (booting) $('bootBar').style.width = w;
+    $('strip').classList.toggle('busy', p > 0 && p < 1);
+  };
+  function endBoot() { if (!booting) return; booting = false; $('boot').classList.add('gone'); setTimeout(() => $('boot').classList.add('hide'), 600); }
+  // boot screen parallax: the three stripe layers follow the pointer by different amounts
+  window.addEventListener('pointermove', (e) => {
+    if (!booting) return;
+    const dx = e.clientX / innerWidth - 0.5, dy = e.clientY / innerHeight - 0.5;
+    document.querySelectorAll('#boot .par').forEach((el, i) => { const k = (i + 1) * 14; el.style.transform = `translate(${dx * k}px, ${dy * k}px)`; });
+  });
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   // ---------- saving ----------
@@ -284,7 +423,8 @@
   async function loadModel() {
     await startCpu();
     bar(0);
-    status('Ready. Choose an image or video.');
+    status('Ready.');
+    endBoot();
     if (videoFile) { $('startVid').disabled = false; $('previewVid').disabled = false; $('allowTilt').disabled = false; }
     if (pendingImage) { const p = pendingImage; pendingImage = null; processImage(p); }
   }
@@ -683,7 +823,7 @@
       $('vidInfo').textContent = 'This browser can\'t encode video (needs a recent Chrome, Edge or Safari).';
       $('startVid').disabled = true;
     }
-    status(session ? 'Video loaded. Pick settings and press Convert. Try "First 2 s" to check the look before a full run.' : 'Video loaded — waiting for the depth model…');
+    status(session ? 'Video loaded. Tap Preview a frame to check the look, then Make 3D video.' : 'Video loaded — waiting for the depth model…');
     $('detNote').textContent = 'Checking whether this video is already 3D…';
     detectVideo(file);
   }
@@ -1440,7 +1580,7 @@
       if (nEyes === 1) depths[1] = depths[0];
 
       await startLivePlayback(videoFile, layout, { depths, DS, fps, frames: done });
-      status(layoutNote + 'Tilt ready for ' + done + ' frames. Tap the video to turn tilt on. Every setting updates live. Convert video still saves the MP4.');
+      status(layoutNote + 'Tilt ready for ' + done + ' frames. Tap the video to turn motion on. Every setting updates live. Make 3D video still saves the MP4.');
       $('imgOut').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) { console.warn(e); status(e.message || String(e)); try { src.close(); } catch (x) {} }
     finish();
@@ -1766,6 +1906,27 @@
   const updTilt = () => { $('sensV').textContent = parseFloat($('sens').value).toFixed(2) + '×'; };
   $('sens').oninput = updTilt; updTilt();
 
+
+  // ---------- workspace glue ----------
+  $('openNew').onclick = () => $('file').click();
+  $('motionBtn').onclick = () => onViewTap();
+  // small live readouts on the folded section headers, the motion button's label, and the "next step" hint
+  setInterval(() => {
+    const opt = (id) => { const e = $(id); return e.options[e.selectedIndex].text.replace(/ \(.*\)/, ''); };
+    $('sv3d').textContent = 'strength ' + parseFloat($('str').value).toFixed(1) + ' · plane ' + Math.round(parseFloat($('foc').value) * 100);
+    $('svLook').textContent = ({ parallel: 'Parallel', cross: 'Cross-eye', anaglyph: 'Red/Cyan', overunder: 'Over-under', window: 'Window' })[fmt] + ($('frm').value !== 'off' ? ' · frame' : '');
+    $('svMotion').textContent = opt('motion').replace(' (front camera)', '').replace(' (phone movement)', '') + (eyesOn || tiltOn ? ' · on' : ' · off');
+    $('svSource').textContent = { auto: 'Auto', mono: 'Normal', sbs: 'Already 3D', cross: 'Cross-eye 3D', ou: 'Over-under 3D' }[$('inMode').value];
+    $('svExport').textContent = videoFile ? opt('fps') + ' · ' + opt('vw') : '';
+    $('motionBtn').textContent = (eyesOn || tiltOn ? 'Stop ' : '') + ($('motion').value === 'eyes' ? 'Eye tracking' : 'Tilt');
+    let hint = '';
+    if (videoFile && !converting) {
+      if (liveVid && liveVid.layout !== 'mono' && !liveVid.depthVideo && !liveVid.depths) hint = 'Already 3D. Add its depth video, or calculate depth, to use motion and the frame.';
+      else if (liveVid && (liveVid.depthVideo || liveVid.depths)) hint = 'Depth ready. Make 3D video saves an MP4 with your current settings.';
+      else hint = 'Make 3D video to save an MP4, or calculate depth to view it live with motion.';
+    }
+    $('nextHint').textContent = hint;
+  }, 400);
   // ---------- controls ----------
   function updLabels() {
     $('strV').textContent = parseFloat($('str').value).toFixed(1) + '%';
@@ -1800,6 +1961,8 @@
   // ---------- input ----------
   function handle(file) {
     if (!file) return;
+    $('start').classList.add('hide'); $('work').classList.remove('hide'); $('openNew').classList.remove('hide');
+    window.scrollTo({ top: 0 });
     stopLive();
     if (file.type.startsWith('video/') || /\.(mp4|mov|webm|m4v|mkv)$/i.test(file.name)) setupVideo(file);
     else { $('vidOut').classList.add('hide'); $('vidOpts').classList.add('hide'); processImage(file); }
@@ -1810,7 +1973,7 @@
   ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
   drop.addEventListener('drop', e => handle(e.dataTransfer.files[0]));
 
-  loadModel().catch(e => { console.error(e); status('Couldn\'t start the depth model: ' + (e.message || e)); });
+  loadModel().catch(e => { console.error(e); status('Couldn\'t start the depth model: ' + (e.message || e)); setTimeout(endBoot, 2500); });
 })();
 </script>
 </body>
