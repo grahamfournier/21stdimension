@@ -559,7 +559,7 @@
     const sel = $('inMode').value;
     const layout = sel === 'auto' ? detectLayout(src, sw, sh) : sel;
     showDetected(layout, sel);
-    if (sel === 'auto' && layout !== 'mono' && parseFloat($('str').value) !== 0) {
+    if (layout !== 'mono' && parseFloat($('str').value) !== 0 && !chooseLayout.quiet) {
       $('str').value = 0; updLabels();
       layoutNote = 'Found a ' + LAYOUT_NAME[layout] + ' file, so depth strength was set to 0 (it adds depth on top of the existing 3D). ';
     } else layoutNote = layout !== 'mono' ? 'Treating this as ' + LAYOUT_NAME[layout] + '. ' : '';
@@ -584,7 +584,7 @@
       }
       src.close();
       if (layout && videoFile === file && !(liveVid && liveVid.file === file && liveVid.depths && liveVid.layout === layout)) {
-        if (layout !== 'mono' && $('inMode').value === 'auto' && parseFloat($('str').value) !== 0) { $('str').value = 0; updLabels(); }
+        if (layout !== 'mono' && parseFloat($('str').value) !== 0) { $('str').value = 0; updLabels(); }
         await startLivePlayback(file, layout, null);
       }
       return;
@@ -851,7 +851,7 @@
     probe.width = Math.max(2, Math.min(960, src.width)); probe.height = Math.max(2, Math.round(src.height * probe.width / src.width));
     const ok = await src.draw(probe.getContext('2d', { willReadFrequently: true }), probe.width, probe.height, Math.min(0.5, src.duration / 2));
     if (!ok) return null;
-    const layout = chooseLayout(probe, probe.width, probe.height);
+    chooseLayout.quiet = true; const layout = chooseLayout(probe, probe.width, probe.height); chooseLayout.quiet = false;
     const r = RECTS[layout][0];
     const ew = src.width * r[2], eh = src.height * r[3], sc = Math.min(1, maxEyeW / ew);
     const w = Math.max(2, Math.round(ew * sc / 2) * 2), h = Math.max(2, Math.round(eh * sc / 2) * 2);
@@ -1093,6 +1093,7 @@
   // Drawn live with WebGL, for photos and (after "Allow tilt") for videos. outCanvas (hidden) holds the full-quality
   // photo render used for saving.
   let lc = $('view'), glLosses = 0;
+  let prog2 = null, fbo = null, texDepP = [null, null], depSize = [[1, 1], [1, 1]];
   let gl = null, prog = null, texImg = [null, null], texDep = [null, null], glFailed = false, texFor = null;
   const LVS = 'attribute vec2 p; varying vec2 uv; void main(){ uv = p * 0.5 + 0.5; uv.y = 1.0 - uv.y; gl_Position = vec4(p, 0.0, 1.0); }';
   const LFS = `precision highp float;
@@ -1186,14 +1187,26 @@
       const sh = (t, src) => { const x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x);
         if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
       prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, LVS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, LFS));
-      gl.linkProgram(prog); gl.useProgram(prog);
+      gl.bindAttribLocation(prog, 0, 'p');
+      gl.linkProgram(prog);
+      // cleanup pass for depth: grow near edges a little and smooth compression noise
+      prog2 = gl.createProgram();
+      gl.attachShader(prog2, sh(gl.VERTEX_SHADER, 'attribute vec2 p; varying vec2 uv; void main(){ uv = p * 0.5 + 0.5; gl_Position = vec4(p, 0.0, 1.0); }'));
+      gl.attachShader(prog2, sh(gl.FRAGMENT_SHADER, `precision highp float; varying vec2 uv; uniform sampler2D src; uniform vec2 px;
+        void main(){ float mx = 0.0, sum = 0.0;
+          for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) { float d = texture2D(src, uv + vec2(float(i), float(j)) * px * 1.5).r; mx = max(mx, d); sum += d; }
+          gl_FragColor = vec4(vec3(0.6 * mx + 0.4 * sum / 9.0), 1.0); }`));
+      gl.bindAttribLocation(prog2, 0, 'p');
+      gl.linkProgram(prog2);
+      fbo = gl.createFramebuffer();
+      gl.useProgram(prog);
       const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
       const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
       const mk = () => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
-      texImg = [mk(), mk()]; texDep = [mk(), mk()];
+      texImg = [mk(), mk()]; texDep = [mk(), mk()]; texDepP = [mk(), mk()]; depSize = [[1, 1], [1, 1]];
       gl.uniform1i(gl.getUniformLocation(prog, 'img'), 0); gl.uniform1i(gl.getUniformLocation(prog, 'dep'), 1);
       gl.uniform1i(gl.getUniformLocation(prog, 'fimg'), 2); gl.uniform1i(gl.getUniformLocation(prog, 'fdep'), 3);
       gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -1207,7 +1220,8 @@
   }
   const U = (n) => gl.getUniformLocation(prog, n);
   function upTex(t, source) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source); }
-  function upDep(t, u8, w, h) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, w, h, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, u8); }
+  function noteDep(t, w, h) { const i = t === texDep[0] ? 0 : t === texDep[1] ? 1 : -1; if (i >= 0) depSize[i] = [w, h]; }
+  function upDep(t, u8, w, h) { noteDep(t, w, h); gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, w, h, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, u8); }
   const toU8 = (f) => { const u = new Uint8Array(f.length); for (let i = 0; i < f.length; i++) u[i] = f[i] * 255; return u; };
 
   // phone orientation -> how far it has turned from where tilt was switched on (or last re-centered)
@@ -1580,7 +1594,7 @@
     gl.viewport(x, y, w, h);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, rect ? texImg[0] : texImg[eye]);
     const dvMode = !!(liveVid && liveVid.depthVideo);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, dvMode ? texDep[0] : texDep[eye]);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, dvMode ? texDepP[0] : texDepP[eye]);
     const r = rect ? rect[eye] : [0, 0, 1, 1], dr = dvMode ? RECTS[liveVid.layout][eye] : [0, 0, 1, 1];
     gl.uniform4f(U('rect'), r[0], r[1], r[2], r[3]);
     gl.uniform4f(U('drect'), dr[0], dr[1], dr[2], dr[3]);
@@ -1589,7 +1603,7 @@
     gl.uniform1f(U('mixOn'), m ? 1 : 0);
     if (m) {
       gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, texImg[1]);
-      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texDep[1]);
+      gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texDepP[1]);
       const fr = RECTS[m.layout][eye];
       gl.uniform4f(U('frect'), fr[0], fr[1], fr[2], fr[3]);
       gl.uniform4f(U('fdrect'), fr[0], fr[1], fr[2], fr[3]);
@@ -1630,6 +1644,7 @@
           m.dctx.drawImage(m.depthVideo, 0, 0, m.dcanvas.width, m.dcanvas.height);
           gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, texDep[1]);
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, m.dcanvas);
+          noteDep(texDep[1], m.dcanvas.width, m.dcanvas.height);
         }
       }
       const dvid = liveVid.depthVideo;
@@ -1640,6 +1655,7 @@
           liveVid.dctx.drawImage(dvid, 0, 0, liveVid.dcanvas.width, liveVid.dcanvas.height);
           gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep[0]);
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, liveVid.dcanvas);
+          noteDep(texDep[0], liveVid.dcanvas.width, liveVid.dcanvas.height);
         }
       } else if (!liveVid.depths) {
         if (liveVid.depIdx !== 0) { const flat = new Uint8Array([128]); upDep(texDep[0], flat, 1, 1); upDep(texDep[1], flat, 1, 1); liveVid.depIdx = 0; }
@@ -1666,6 +1682,22 @@
       }
       ew = img.w; eh = img.h;
     }
+    for (let i = 0; i < 2; i++) {
+      const [dw, dh] = depSize[i];
+      gl.useProgram(prog2);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texDepP[i]);
+      if (texDepP[i]._w !== dw || texDepP[i]._h !== dh) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, dw, dh, 0, gl.RGBA, gl.UNSIGNED_BYTE, null); texDepP[i]._w = dw; texDepP[i]._h = dh; }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texDepP[i], 0);
+      gl.viewport(0, 0, dw, dh);
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texDep[i]);
+      gl.uniform1i(gl.getUniformLocation(prog2, 'src'), 0);
+      gl.uniform2f(gl.getUniformLocation(prog2, 'px'), 1 / dw, 1 / dh);
+      gl.colorMask(true, true, true, true);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    }
+    gl.useProgram(prog);
     const sm = eyesOn ? 0.6 : 0.2;
     smooth[0] += (look[0] - smooth[0]) * sm; smooth[1] += (look[1] - smooth[1]) * sm;
     // canvas has the same shape as the saved output
@@ -1711,7 +1743,7 @@
   function drawEyeMono(x, y, w, h, k, p, ew, eh) {
     gl.viewport(x, y, w, h);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texImg[0]);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep[0]);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDepP[0]);
     gl.uniform4f(U('rect'), 0, 0, 1, 1); gl.uniform4f(U('drect'), 0, 0, 1, 1); gl.uniform1f(U('mixOn'), 0);
     setPlace();
     const sh = eyeShift(k, ew, eh);
@@ -1750,6 +1782,7 @@
     const b = e.target.closest('button'); if (!b) return;
     e.preventDefault();
     $('inMode').value = b.dataset.v;
+    if (b.dataset.v !== 'auto' && b.dataset.v !== 'mono' && parseFloat($('str').value) !== 0) { $('str').value = 0; updLabels(); }
     [...$('inSeg').children].forEach(x => x.classList.toggle('on', x === b));
     if (img && !converting && img.full && !liveVid) { img = makeImg(img.full, img.name); depthForImage(); }
     else if (videoFile && (!liveVid || !liveVid.depths || liveVid.file !== videoFile)) { $('detNote').textContent = 'Checking…'; detectVideo(videoFile); }
