@@ -535,12 +535,20 @@
     try { src = await openDecoderSource(file); } catch (e) { try { src = await openPlayerSource(file, () => {}); } catch (e2) { return; } }
     try {
       const c = document.createElement('canvas'); c.width = Math.max(2, Math.min(960, src.width)); c.height = Math.max(2, Math.round(src.height * c.width / src.width));
+      let layout = null;
       if (await src.draw(c.getContext('2d', { willReadFrequently: true }), c.width, c.height, Math.min(0.5, src.duration / 2)) && videoFile === file) {
         const sel = $('inMode').value;
-        showDetected(sel === 'auto' ? detectLayout(c, c.width, c.height) : sel, sel);
+        layout = sel === 'auto' ? detectLayout(c, c.width, c.height) : sel;
+        showDetected(layout, sel);
       }
-    } catch (e) {}
-    src.close();
+      src.close();
+      if (layout && videoFile === file && !(liveVid && liveVid.file === file && liveVid.depths && liveVid.layout === layout)) {
+        if (layout !== 'mono' && $('inMode').value === 'auto' && parseFloat($('str').value) !== 0) { $('str').value = 0; updLabels(); }
+        await startLivePlayback(file, layout, null);
+      }
+      return;
+    } catch (e) { console.warn(e); }
+    try { src.close(); } catch (e) {}
   }
   function cropEye(srcCanvas, r) {
     const W = srcCanvas.width, H = srcCanvas.height;
@@ -1214,30 +1222,42 @@
       if (!done) { status('Cancelled.'); finish(); return; }
       if (nEyes === 1) depths[1] = depths[0];
 
-      // play the original file; each frame is drawn through a 2D canvas so phone rotation is handled
-      const v = document.createElement('video');
-      v.playsInline = true; v.setAttribute('playsinline', ''); v.loop = true; v.preload = 'auto';
-      v.style.cssText = 'position:fixed;left:0;bottom:0;width:4px;height:4px;opacity:0.01;pointer-events:none;z-index:-1';
-      v.src = URL.createObjectURL(videoFile);
-      document.body.appendChild(v);
-      await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('Couldn\'t play this video here.')); setTimeout(res, 8000); });
-      const frameCanvas = document.createElement('canvas');
-      const fscale = Math.min(1, 2048 / Math.max(v.videoWidth || FW, v.videoHeight || FH));
-      frameCanvas.width = Math.round((v.videoWidth || FW) * fscale); frameCanvas.height = Math.round((v.videoHeight || FH) * fscale);
-      img = null;
-      liveVid = { video: v, frameCanvas, fctx: frameCanvas.getContext('2d'), layout, depths, DS, fps, frames: done, dur: done / fps,
-        eyeW: frameCanvas.width * RECTS[layout][0][2], eyeH: frameCanvas.height * RECTS[layout][0][3], depIdx: -1, contrastAt: null };
-      $('imgOut').classList.remove('hide'); $('outCanvas').classList.add('hide');
-      document.querySelector('.thumbs figure').classList.add('hide');
-      $('saveImg').classList.add('hide'); $('saveDepth').classList.add('hide');
-      $('playLive').classList.remove('hide'); $('playLive').textContent = 'Pause';
-      try { await v.play(); } catch (e) { $('playLive').textContent = 'Play'; }
-      status(layoutNote + 'Tilt ready for ' + done + ' frames. The video plays above; tap it to turn tilt on. Every setting updates live. Convert video still saves the MP4.');
+      await startLivePlayback(videoFile, layout, { depths, DS, fps, frames: done });
+      status(layoutNote + 'Tilt ready for ' + done + ' frames. Tap the video to turn tilt on. Every setting updates live. Convert video still saves the MP4.');
       $('imgOut').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (e) { console.warn(e); status(e.message || String(e)); try { src.close(); } catch (x) {} }
     finish();
   }
   $('allowTilt').onclick = allowTiltVideo;
+
+  // play a video in the picture area at the top. Without prepared depth it shows as-is (a 3D file shows its own 3D,
+  // in whichever output you pick); after "Allow tilt" the depth makes tilt, frame and the depth sliders work too.
+  async function startLivePlayback(file, layout, prep) {
+    const wasTime = liveVid && liveVid.file === file ? liveVid.video.currentTime : 0;
+    stopLive();
+    const v = document.createElement('video');
+    v.playsInline = true; v.setAttribute('playsinline', ''); v.loop = true; v.preload = 'auto'; v.muted = false;
+    v.style.cssText = 'position:fixed;left:0;bottom:0;width:4px;height:4px;opacity:0.01;pointer-events:none;z-index:-1';
+    v.src = URL.createObjectURL(file);
+    document.body.appendChild(v);
+    await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('Couldn\'t play this video here.')); setTimeout(res, 8000); });
+    const frameCanvas = document.createElement('canvas');
+    const vw = v.videoWidth || 1280, vh = v.videoHeight || 720, fscale = Math.min(1, 2048 / Math.max(vw, vh));
+    frameCanvas.width = Math.round(vw * fscale); frameCanvas.height = Math.round(vh * fscale);
+    img = null;
+    liveVid = { file, video: v, frameCanvas, fctx: frameCanvas.getContext('2d'), layout,
+      depths: prep ? prep.depths : null, DS: prep ? prep.DS : 1, fps: prep ? prep.fps : 1, frames: prep ? prep.frames : 0,
+      dur: prep ? prep.frames / prep.fps : Infinity,
+      eyeW: frameCanvas.width * RECTS[layout][0][2], eyeH: frameCanvas.height * RECTS[layout][0][3], depIdx: -1 };
+    $('imgOut').classList.remove('hide'); $('outCanvas').classList.add('hide');
+    document.querySelector('.thumbs figure').classList.add('hide');
+    $('saveImg').classList.add('hide'); $('saveDepth').classList.add('hide');
+    $('playLive').classList.remove('hide');
+    if (wasTime) v.currentTime = Math.min(wasTime, liveVid.dur);
+    $('tiltNote').textContent = prep ? (tiltOn ? 'Tilt is on. Tap the picture to turn it off.' : 'Tap the picture to turn on tilt.')
+      : 'Playing as-is. Tap "Allow tilt" below to prepare tilt, the frame and depth effects.';
+    try { await v.play(); $('playLive').textContent = 'Pause'; } catch (e) { $('playLive').textContent = 'Play'; }
+  }
   $('playLive').onclick = () => {
     if (!liveVid) return;
     const v = liveVid.video;
@@ -1277,13 +1297,17 @@
       if (v.readyState < 2) return;
       liveVid.fctx.drawImage(v, 0, 0, liveVid.frameCanvas.width, liveVid.frameCanvas.height);
       upTex(texImg[0], liveVid.frameCanvas);
-      const idx = Math.min(liveVid.frames - 1, Math.max(0, Math.floor(v.currentTime * liveVid.fps)));
-      if (idx !== liveVid.depIdx) {
-        upDep(texDep[0], liveVid.depths[0][idx], liveVid.DS, liveVid.DS);
-        upDep(texDep[1], liveVid.depths[1][idx], liveVid.DS, liveVid.DS);
-        liveVid.depIdx = idx;
+      if (!liveVid.depths) {
+        if (liveVid.depIdx !== 0) { const flat = new Uint8Array([128]); upDep(texDep[0], flat, 1, 1); upDep(texDep[1], flat, 1, 1); liveVid.depIdx = 0; }
+      } else {
+        const idx = Math.min(liveVid.frames - 1, Math.max(0, Math.floor(v.currentTime * liveVid.fps)));
+        if (idx !== liveVid.depIdx) {
+          upDep(texDep[0], liveVid.depths[0][idx], liveVid.DS, liveVid.DS);
+          upDep(texDep[1], liveVid.depths[1][idx], liveVid.DS, liveVid.DS);
+          liveVid.depIdx = idx;
+        }
+        if (v.currentTime > liveVid.dur + 0.05) v.currentTime = 0;   // only the prepared part loops
       }
-      if (v.currentTime > liveVid.dur + 0.05) v.currentTime = 0;   // only the prepared part loops
       ew = liveVid.eyeW; eh = liveVid.eyeH; rect = RECTS[liveVid.layout];
     } else {
       if (texFor !== img) {
@@ -1304,6 +1328,8 @@
     const sc = Math.min(1, 2048 / Math.max(OW, OH)), W = Math.round(OW * sc), H = Math.round(OH * sc);
     if (lc.width !== W || lc.height !== H) { lc.width = W; lc.height = H; }
     const p = params(ew);
+    const raw = liveVid && !liveVid.depths;   // video shown as-is until depth is prepared
+    if (raw) { p.frame = null; p.focus = 0.5; }
     const monoPhoto = !liveVid && img.eyes[1] === img.eyes[0];
     gl.colorMask(true, true, true, true); gl.viewport(0, 0, W, H); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform1f(U('gray'), 0);
@@ -1368,7 +1394,7 @@
     $('inMode').value = b.dataset.v;
     [...$('inSeg').children].forEach(x => x.classList.toggle('on', x === b));
     if (img && !converting && img.full && !liveVid) { img = makeImg(img.full, img.name); depthForImage(); }
-    else if (videoFile && $('imgOut').classList.contains('hide')) { $('detNote').textContent = 'Checking…'; detectVideo(videoFile); }
+    else if (videoFile && (!liveVid || !liveVid.depths || liveVid.file !== videoFile)) { $('detNote').textContent = 'Checking…'; detectVideo(videoFile); }
     else if (b.dataset.v !== 'auto') showDetected(b.dataset.v, b.dataset.v);
   };
   $('str').oninput = live; $('foc').oninput = live; $('crv').oninput = () => { depthDirty = true; live(); }; $('fsz').oninput = live; $('fthr').oninput = live; $('frm').onchange = live;
