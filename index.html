@@ -67,7 +67,10 @@
   <section class="out hide" id="imgOut">
     <canvas id="view" style="width:100%;display:block;border-radius:8px;background:#000;touch-action:manipulation"></canvas>
     <canvas id="outCanvas" class="hide" style="width:100%"></canvas>
-    <div class="note" id="tiltNote" style="margin-top:6px">Tap the picture to turn on tilt. Tap again to re-center.</div>
+    <div class="actions" style="margin-top:8px">
+      <button class="btn ghost" id="recenter">Re-center</button>
+      <span class="note" id="tiltNote">Tap the picture to turn on tilt.</span>
+    </div>
     <div class="thumbs">
       <figure><canvas id="depthCanvas"></canvas><figcaption>Depth map (bright = near)</figcaption></figure>
       <div class="actions" style="margin-top:0;flex:1">
@@ -125,6 +128,14 @@
       </label>
       <label class="f">Break-out depth <span class="v" id="fthrV"></span>
         <input type="range" id="fthr" min="0" max="100" step="1" value="55">
+      </label>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <label class="f">Tilt sensitivity <span class="v" id="sensV"></span>
+        <input type="range" id="sens" min="0.2" max="4" step="0.05" value="1">
+      </label>
+      <label class="f">Tilt direction
+        <select id="tdir"><option value="normal" selected>Normal</option><option value="reverse">Reversed</option></select>
       </label>
     </div>
     <div class="row hide" id="vidOpts" style="margin-top:16px">
@@ -965,10 +976,11 @@
     // phone held sideways (e.g. in a headset): turn device axes into screen axes
     const ang = ((screen.orientation && screen.orientation.angle) || window.orientation || 0) * Math.PI / 180;
     const sx = yaw * Math.cos(ang) + pitch * Math.sin(ang), sy = -yaw * Math.sin(ang) + pitch * Math.cos(ang);
-    look = [Math.max(-1.5, Math.min(1.5, sx / 25)), Math.max(-1.5, Math.min(1.5, -sy / 25))];
+    const k = parseFloat($('sens').value) / 25;
+    look = [Math.max(-2, Math.min(2, sx * k)), Math.max(-2, Math.min(2, -sy * k))];
   }
   lc.addEventListener('click', async () => {
-    if (tiltOn) { baseR = curR; look = [0, 0]; $('tiltNote').textContent = 'Re-centered. Tilt or turn the phone to look around.'; return; }
+    if (tiltOn) return;
     try {
       if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
         const r = await DeviceOrientationEvent.requestPermission();
@@ -976,7 +988,7 @@
       }
       window.addEventListener('deviceorientation', onOrient);
       tiltOn = true; baseR = null;
-      $('tiltNote').textContent = 'Tilt is on. Tilt or turn the phone to look around. Tap the picture to re-center.';
+      $('tiltNote').textContent = 'Tilt is on.';
     } catch (e) { $('tiltNote').textContent = 'This browser won\'t share motion: ' + (e.message || e); }
   });
   lc.addEventListener('mousemove', (e) => {   // computers: the mouse stands in for tilt
@@ -988,8 +1000,9 @@
   function drawEye(x, y, w, h, eyeSign, p) {
     gl.viewport(x, y, w, h);
     const strength = parseFloat($('str').value) / 100;
-    // turning moves the viewpoint; how far scales with depth strength
-    gl.uniform2f(U('shift'), eyeSign * strength / 2 - smooth[0] * strength, -smooth[1] * strength);
+    // turning moves the viewpoint (5% of the width per 25 degrees at sensitivity 1); separate from depth strength
+    const dir = $('tdir').value === 'reverse' ? 1 : -1;
+    gl.uniform2f(U('shift'), eyeSign * strength / 2 + dir * smooth[0] * 0.05, dir * smooth[1] * 0.05);
     gl.uniform1f(U('focus'), p.focus);
     gl.uniform1f(U('frameOn'), p.frame ? 1 : 0);
     if (p.frame) {
@@ -1034,6 +1047,9 @@
     }
   }
   requestAnimationFrame(viewFrame);
+  $('recenter').onclick = () => { baseR = curR; look = [0, 0]; };
+  const updTilt = () => { $('sensV').textContent = parseFloat($('sens').value).toFixed(2) + '×'; };
+  $('sens').oninput = updTilt; updTilt();
 
   // ---------- controls ----------
   function updLabels() {
