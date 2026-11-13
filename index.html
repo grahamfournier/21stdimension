@@ -1117,7 +1117,9 @@
         vec2 P = uv * canvasPx;
         if (dot(P, clip.xy) + clip.z < 0.0) discard;
         q = (uv - place.xy) / place.zw;
-        if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+        // past the picture's side edge (revealed when the dividing line tilts): mirror the picture instead of showing black
+        q.x = clamp(1.0 - abs(1.0 - abs(q.x)), 0.0, 1.0);
+        if (q.y < 0.0 || q.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
       }
       // find the source pixel that lands here (near things shift more than far ones)
       vec2 p = q;
