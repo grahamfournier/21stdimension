@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Tilt 3D</title>
+<style>
+  :root { --bg: #0e0f11; --panel: rgba(22,24,27,.92); --line: #2a2e34; --text: #e8e6e3; --dim: #8b8f96; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #000; color: var(--text);
+    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; overflow: hidden; }
+  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; touch-action: none; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    background: var(--panel); border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+    transition: transform .25s; }
+  .bar.hidden { transform: translateY(100%); }
+  .btn { background: var(--text); color: #000; border: 0; border-radius: 8px; padding: 9px 14px; font: inherit; font-weight: 600; font-size: 14px; }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; flex: 1; min-width: 120px; }
+  input[type=range] { width: 100%; accent-color: var(--text); }
+  input[type=file] { display: none; }
+  .status { font-size: 13px; color: var(--dim); width: 100%; }
+  .intro { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; }
+  .intro h1 { font-size: 22px; font-weight: 600; margin: 0; }
+  .intro p { color: var(--dim); margin: 0; max-width: 340px; }
+  .hide { display: none !important; }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div class="intro" id="intro">
+  <h1>Tilt 3D</h1>
+  <p>Pick a photo. Depth is worked out on your phone, then tilting the phone lets you look around the scene.</p>
+  <label class="btn">Choose photo<input type="file" id="file" accept="image/*"></label>
+  <p class="status" id="introStatus">Loading depth model…</p>
+</div>
+<div class="bar hide" id="bar">
+  <button class="btn" id="tiltBtn">Enable tilt</button>
+  <button class="btn ghost" id="center">Re-center</button>
+  <label class="btn ghost">New photo<input type="file" id="file2" accept="image/*"></label>
+  <label class="f">Depth <input type="range" id="amt" min="0" max="12" step="0.1" value="4"></label>
+  <label class="f">Pivot <input type="range" id="piv" min="0" max="1" step="0.01" value="0.4"></label>
+  <label class="f">Sensitivity <input type="range" id="sens" min="0.3" max="3" step="0.05" value="1"></label>
+  <div class="status" id="status"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.wasm.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const ORT_CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+  const MEAN = [0.485, 0.456, 0.406], STD = [0.229, 0.224, 0.225], MODEL = 392;
+  let session = null, pending = null;
+
+  // ---------- depth model ----------
+  async function loadModel() {
+    ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+    ort.env.wasm.wasmPaths = ORT_CDN;
+    const res = await fetch('depth-model.onnx');
+    const total = +res.headers.get('content-length') || 35600000;
+    const reader = res.body.getReader(), chunks = []; let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read(); if (done) break;
+      chunks.push(value); got += value.length;
+      $('introStatus').textContent = 'Loading depth model… ' + Math.round(got / 1e6) + ' / ' + Math.round(total / 1e6) + ' MB';
+    }
+    const buf = new Uint8Array(got); let o = 0; for (const c of chunks) { buf.set(c, o); o += c.length; }
+    session = await ort.InferenceSession.create(buf, { executionProviders: ['wasm'] });
+    $('introStatus').textContent = 'Ready.';
+    if (pending) { const f = pending; pending = null; open(f); }
+  }
+
+  async function depthOf(canvas) {
+    const m = document.createElement('canvas'); m.width = m.height = MODEL;
+    const mc = m.getContext('2d', { willReadFrequently: true }); mc.drawImage(canvas, 0, 0, MODEL, MODEL);
+    const px = mc.getImageData(0, 0, MODEL, MODEL).data, N = MODEL * MODEL, x = new Float32Array(3 * N);
+    for (let i = 0; i < N; i++) for (let c = 0; c < 3; c++) x[i + c * N] = (px[i * 4 + c] / 255 - MEAN[c]) / STD[c];
+    const feeds = {}; feeds[session.inputNames[0]] = new ort.Tensor('float32', x, [1, 3, MODEL, MODEL]);
+    const raw = (await session.run(feeds))[session.outputNames[0]].data;
+    const s = Array.from(raw.filter((_, i) => i % 7 === 0)).sort((a, b) => a - b);
+    const lo = s[Math.floor(s.length * 0.01)], hi = s[Math.floor(s.length * 0.995)];
+    const d = new Uint8Array(N);
+    for (let i = 0; i < N; i++) d[i] = Math.max(0, Math.min(255, (raw[i] - lo) / (hi - lo) * 255));
+    return grow(d, MODEL, 2);
+  }
+  // near regions grow a little so subject edges move with the subject
+  function grow(d, n, r) {
+    const t = new Uint8Array(d.length), o = new Uint8Array(d.length);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { let m = 0; for (let k = -r; k <= r; k++) { const v = d[y * n + Math.min(n - 1, Math.max(0, x + k))]; if (v > m) m = v; } t[y * n + x] = m; }
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { let m = 0; for (let k = -r; k <= r; k++) { const v = t[Math.min(n - 1, Math.max(0, y + k)) * n + x]; if (v > m) m = v; } o[y * n + x] = m; }
+    return o;
+  }
+
+  // ---------- WebGL ----------
+  const cv = $('gl'), gl = cv.getContext('webgl', { antialias: false });
+  const vs = 'attribute vec2 p; varying vec2 uv; void main(){ uv = p * 0.5 + 0.5; uv.y = 1.0 - uv.y; gl_Position = vec4(p, 0.0, 1.0); }';
+  const fs = `precision highp float;
+    varying vec2 uv; uniform sampler2D img, dep; uniform vec2 shift, scale; uniform float pivot;
+    void main(){
+      vec2 q = (uv - 0.5) / scale + 0.5;           // fit the photo inside the screen
+      if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+      // find the source point that lands here: near things move with the tilt, far things against it
+      vec2 p = q;
+      for (int i = 0; i < 10; i++) { float d = texture2D(dep, p).r; p = q - shift * (d - pivot); }
+      p = clamp(p, 0.0, 1.0);
+      gl_FragColor = vec4(texture2D(img, p).rgb, 1.0);
+    }`;
+  function sh(t, src) { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+  const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(prog); gl.useProgram(prog);
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  const U = n => gl.getUniformLocation(prog, n);
+  function tex(unit) { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
+  const imgTex = tex(0), depTex = tex(1);
+  gl.uniform1i(U('img'), 0); gl.uniform1i(U('dep'), 1);
+  let imgAspect = 1, loaded = false;
+
+  // ---------- input ----------
+  let tx = 0, ty = 0, sx = 0, sy = 0, base = null, lastOri = null;
+  function onOri(e) {
+    if (e.beta == null) return;
+    lastOri = { b: e.beta, g: e.gamma };
+    if (!base) base = { ...lastOri };
+    const k = parseFloat($('sens').value);
+    tx = Math.max(-1, Math.min(1, (lastOri.g - base.g) / 25 * k));
+    ty = Math.max(-1, Math.min(1, (lastOri.b - base.b) / 25 * k));
+  }
+  $('tiltBtn').onclick = async () => {
+    try {
+      if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
+        const r = await DeviceOrientationEvent.requestPermission();
+        if (r !== 'granted') { $('status').textContent = 'Motion access was declined. In Safari, allow Motion & Orientation for this site.'; return; }
+      }
+      base = null; window.addEventListener('deviceorientation', onOri);
+      $('tiltBtn').classList.add('hide'); $('status').textContent = 'Tilt the phone to look around. Tap the photo to hide the controls.';
+    } catch (e) { $('status').textContent = 'This browser won\'t share motion: ' + e.message; }
+  };
+  $('center').onclick = () => { base = lastOri ? { ...lastOri } : null; tx = ty = 0; };
+  // mouse fallback on computers
+  window.addEventListener('mousemove', e => { if (lastOri) return; tx = (e.clientX / innerWidth - 0.5) * 2; ty = (e.clientY / innerHeight - 0.5) * 2; });
+  cv.addEventListener('click', () => { if (loaded) $('bar').classList.toggle('hidden'); });
+
+  // ---------- open a photo ----------
+  async function open(file) {
+    if (!file) return;
+    if (!session) { pending = file; $('introStatus').textContent = 'Photo queued, still loading the depth model…'; return; }
+    $('introStatus').textContent = 'Reading photo…'; $('status').textContent = 'Working out depth…';
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const max = Math.min(2048, gl.getParameter(gl.MAX_TEXTURE_SIZE)), sc = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    $('introStatus').textContent = 'Working out depth…';
+    await new Promise(r => setTimeout(r, 30));
+    const d = await depthOf(c);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, imgTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, depTex);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, MODEL, MODEL, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, d);
+    imgAspect = c.width / c.height; loaded = true;
+    $('intro').classList.add('hide'); $('bar').classList.remove('hide');
+    $('status').textContent = lastOri ? 'Tilt to look around.' : 'Tap "Enable tilt", then tilt the phone. On a computer, move the mouse.';
+  }
+  $('file').onchange = e => open(e.target.files[0]);
+  $('file2').onchange = e => open(e.target.files[0]);
+
+  // ---------- draw ----------
+  function frame() {
+    const dpr = Math.min(2, devicePixelRatio || 1), W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; gl.viewport(0, 0, W, H); }
+    if (loaded) {
+      sx += (tx - sx) * 0.18; sy += (ty - sy) * 0.18;
+      const sa = W / H, s = imgAspect > sa ? [1, sa / imgAspect] : [imgAspect / sa, 1];
+      const amt = parseFloat($('amt').value) / 100;
+      gl.uniform2f(U('scale'), s[0] * 0.94, s[1] * 0.94);
+      gl.uniform2f(U('shift'), sx * amt, sy * amt);
+      gl.uniform1f(U('pivot'), parseFloat($('piv').value));
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  loadModel().catch(e => { $('introStatus').textContent = 'Couldn\'t load the depth model: ' + e.message; });
+})();
+</script>
+</body>
+</html>
