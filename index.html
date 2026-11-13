@@ -74,6 +74,7 @@
     <div class="thumbs">
       <figure><canvas id="depthCanvas"></canvas><figcaption>Depth map (bright = near)</figcaption></figure>
       <div class="actions" style="margin-top:0;flex:1">
+        <button class="btn hide" id="playLive">Pause</button>
         <button class="btn" id="saveImg">Save image</button>
         <button class="btn ghost" id="saveDepth">Save depth map</button>
         <span class="note" id="saveNote"></span>
@@ -85,6 +86,7 @@
     <div class="actions" style="margin-top:0">
       <button class="btn" id="startVid" disabled>Convert video</button>
       <button class="btn ghost" id="previewVid" disabled>Preview a frame</button>
+      <button class="btn ghost" id="allowTilt" disabled>Allow tilt</button>
       <button class="btn ghost hide" id="cancelVid">Stop and keep</button>
       <span class="note" id="vidInfo"></span>
     </div>
@@ -98,6 +100,9 @@
 
   <div class="panel">
     <div class="row">
+      <label class="f">Input
+        <select id="inMode"><option value="auto" selected>Auto-detect</option><option value="mono">Normal photo/video</option><option value="sbs">Side-by-side 3D</option><option value="cross">Cross-eye 3D</option><option value="ou">Over-under 3D</option></select>
+      </label>
       <div class="f" style="flex:2;min-width:260px">Output
         <div class="seg" id="fmt">
           <button data-v="parallel" class="on">Parallel</button>
@@ -110,7 +115,7 @@
         <select id="q"><option value="518" selected>High</option><option value="392">Medium (~2× faster)</option><option value="252">Low (~5× faster)</option></select>
       </label>
       <label class="f">Depth strength <span class="v" id="strV"></span>
-        <input type="range" id="str" min="0.5" max="40" step="0.1" value="3">
+        <input type="range" id="str" min="0" max="40" step="0.1" value="3">
       </label>
       <label class="f">Screen plane <span class="v" id="focV"></span>
         <input type="range" id="foc" min="-0.5" max="1.5" step="0.01" value="0.35">
@@ -243,7 +248,7 @@
     await startCpu();
     bar(0);
     status('Ready. Choose an image or video.');
-    if (videoFile) { $('startVid').disabled = false; $('previewVid').disabled = false; }
+    if (videoFile) { $('startVid').disabled = false; $('previewVid').disabled = false; $('allowTilt').disabled = false; }
     if (pendingImage) { const p = pendingImage; pendingImage = null; processImage(p); }
   }
 
@@ -468,14 +473,74 @@
       frame: $('frm').value === 'off' ? null : { size: parseFloat($('fsz').value) / 100, thr: parseFloat($('fthr').value) / 100, color: $('frm').value === 'white' ? [245, 245, 245] : [0, 0, 0] } };
   }
 
+  // ---------- 3D input: files that already hold two eyes ----------
+  // eye rectangles as fractions of the full picture: [x, y, w, h] for the left eye, then the right eye
+  const RECTS = {
+    mono: [[0, 0, 1, 1], [0, 0, 1, 1]],
+    sbs: [[0, 0, 0.5, 1], [0.5, 0, 0.5, 1]],
+    cross: [[0.5, 0, 0.5, 1], [0, 0, 0.5, 1]],
+    ou: [[0, 0, 1, 0.5], [0, 0.5, 1, 0.5]],
+  };
+  const LAYOUT_NAME = { mono: 'normal', sbs: 'side-by-side 3D', cross: 'cross-eye 3D', ou: 'over-under 3D' };
+  // two halves of a 3D file look almost the same; a normal picture's halves don't
+  function detectLayout(src, sw, sh) {
+    const n = 48, c = document.createElement('canvas'); c.width = 2 * n; c.height = 2 * n;
+    const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(src, 0, 0, sw, sh, 0, 0, 2 * n, 2 * n);
+    const d = x.getImageData(0, 0, 2 * n, 2 * n).data;
+    const g = (px, py) => { const i = (py * 2 * n + px) * 4; return d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114; };
+    // compare the two halves, also allowing a small sideways offset (the two eyes differ by their 3D shift)
+    function corr1(dx, dy, W, H, off) {
+      let sa = 0, sb = 0, saa = 0, sbb = 0, sab = 0, N = 0;
+      const x0 = Math.max(0, -off), x1 = Math.min(W, W - off);
+      for (let yy = 0; yy < H; yy++) for (let xx = x0; xx < x1; xx++) {
+        const a = g(xx, yy), b = g(xx + dx + off, yy + dy);
+        sa += a; sb += b; saa += a * a; sbb += b * b; sab += a * b; N++;
+      }
+      const cov = sab / N - (sa / N) * (sb / N), va = saa / N - (sa / N) ** 2, vb = sbb / N - (sb / N) ** 2;
+      return va < 4 || vb < 4 ? 0 : cov / Math.sqrt(va * vb);
+    }
+    function corr(dx, dy, W, H) { let best = -1; for (let off = -7; off <= 7; off++) best = Math.max(best, corr1(dx, dy, W, H, off)); return best; }
+    const lr = corr(n, 0, n, 2 * n), tb = corr(0, n, 2 * n, n);
+    if (lr > 0.8 && lr >= tb) return 'sbs';
+    if (tb > 0.8) return 'ou';
+    return 'mono';
+  }
+  // decide the layout for a newly loaded picture; when 3D is found automatically, start with no added depth
+  function chooseLayout(src, sw, sh) {
+    const sel = $('inMode').value;
+    const layout = sel === 'auto' ? detectLayout(src, sw, sh) : sel;
+    if (sel === 'auto' && layout !== 'mono' && parseFloat($('str').value) !== 0) {
+      $('str').value = 0; updLabels();
+      layoutNote = 'Found a ' + LAYOUT_NAME[layout] + ' file, so depth strength was set to 0 (it adds depth on top of the existing 3D). ';
+    } else layoutNote = layout !== 'mono' ? 'Treating this as ' + LAYOUT_NAME[layout] + '. ' : '';
+    return layout;
+  }
+  let layoutNote = '';
+  function cropEye(srcCanvas, r) {
+    const W = srcCanvas.width, H = srcCanvas.height;
+    const sx = Math.round(r[0] * W), sy = Math.round(r[1] * H), sw = Math.round(r[2] * W), sh = Math.round(r[3] * H);
+    const c = document.createElement('canvas'); c.width = sw; c.height = sh;
+    const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    return { canvas: c, rgba: x.getImageData(0, 0, sw, sh).data, depth: null };
+  }
+  function makeImg(full, name) {
+    const layout = chooseLayout(full, full.width, full.height);
+    const e0 = cropEye(full, RECTS[layout][0]);
+    const e1 = layout === 'mono' ? e0 : cropEye(full, RECTS[layout][1]);
+    if (e1.canvas.width !== e0.canvas.width || e1.canvas.height !== e0.canvas.height) e1.canvas = e0.canvas; // odd sizes: should not happen
+    return { layout, w: e0.canvas.width, h: e0.canvas.height, eyes: [e0, e1], name, full };
+  }
+
   // ---------- image flow ----------
   const outCtx = $('outCanvas').getContext('2d');
   function renderImage() {
-    if (!img || !img.depth) return;
-    const { w, h, rgba } = img, p = params(w), depth = contrastDepth(img.depth, p.contrast);
-    drawDepth(depth, w, h);
-    const L = warp(rgba, depth, w, h, +1, p.maxShift, p.focus, p.frame);
-    const R = warp(rgba, depth, w, h, -1, p.maxShift, p.focus, p.frame);
+    if (!img || !img.eyes[0].depth || !img.eyes[1].depth) return;
+    const { w, h } = img, p = params(w);
+    const d0 = contrastDepth(img.eyes[0].depth, p.contrast);
+    const d1 = img.eyes[1] === img.eyes[0] ? d0 : contrastDepth(img.eyes[1].depth, p.contrast);
+    drawDepth(d0, w, h);
+    const L = warp(img.eyes[0].rgba, d0, w, h, +1, p.maxShift, p.focus, p.frame);
+    const R = warp(img.eyes[1].rgba, d1, w, h, -1, p.maxShift, p.focus, p.frame);
     compose(L, R, w, h, fmt, outCtx);
   }
 
@@ -485,13 +550,21 @@
     let bmp;
     try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
     catch (e) { status('This browser can\'t read that image format. Try a JPG or PNG.'); return; }
-    const MAXW = 2400;
+    stopLive();
+    const MAXW = 4800;
     const scale = Math.min(1, MAXW / bmp.width);
-    const w = Math.max(2, Math.round(bmp.width * scale)), h = Math.max(2, Math.round(bmp.height * scale));
+    const w = Math.max(2, Math.round(bmp.width * scale / 2) * 2), h = Math.max(2, Math.round(bmp.height * scale / 2) * 2);
     const c = document.createElement('canvas'); c.width = w; c.height = h;
-    const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(bmp, 0, 0, w, h);
-    const rgba = cx.getImageData(0, 0, w, h).data;
-    img = { w, h, rgba, canvas: c, depth: null, name: file.name.replace(/\.[^.]+$/, '') };
+    c.getContext('2d').drawImage(bmp, 0, 0, w, h);
+    img = makeImg(c, file.name.replace(/\.[^.]+$/, ''));
+    // keep each eye at a sensible size
+    for (const e of new Set(img.eyes)) if (e.canvas.width > 2400) {
+      const k = 2400 / e.canvas.width, c2 = document.createElement('canvas');
+      c2.width = Math.round(e.canvas.width * k); c2.height = Math.round(e.canvas.height * k);
+      const x2 = c2.getContext('2d', { willReadFrequently: true }); x2.drawImage(e.canvas, 0, 0, c2.width, c2.height);
+      e.canvas = c2; e.rgba = x2.getImageData(0, 0, c2.width, c2.height).data;
+    }
+    img.w = img.eyes[0].canvas.width; img.h = img.eyes[0].canvas.height;
     await depthForImage();
   }
 
@@ -500,14 +573,16 @@
     status('Estimating depth…'); bar(0.3);
     await sleep(30);
     const t0 = performance.now();
-    const raw = await estimateDepth(img.canvas);
-    const [lo, hi] = percentiles(raw);
-    img.depth = depthToSize(raw, img.w, img.h, lo, hi);
+    for (const e of new Set(img.eyes)) {
+      const raw = await estimateDepth(e.canvas);
+      const [lo, hi] = percentiles(raw);
+      e.depth = depthToSize(raw, img.w, img.h, lo, hi);
+    }
     depthDirty = true;
     renderImage();
     $('imgOut').classList.remove('hide');
     bar(0);
-    status('Done in ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s. Sliders update the result live.');
+    status(layoutNote + 'Done in ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s. Sliders update the result live.');
   }
 
   $('saveImg').onclick = () => {
@@ -527,7 +602,7 @@
     $('vidOpts').classList.remove('hide');
     $('vidResult').classList.add('hide'); $('saveVid').classList.add('hide');
     $('vidSaveNote').textContent = '';
-    $('startVid').disabled = !session; $('previewVid').disabled = !session;
+    $('startVid').disabled = !session; $('previewVid').disabled = !session; $('allowTilt').disabled = !session;
     $('vidInfo').textContent = file.name;
     if (!('VideoEncoder' in window)) {
       $('vidInfo').textContent = 'This browser can\'t encode video (needs a recent Chrome, Edge or Safari).';
@@ -693,6 +768,19 @@
     };
   }
 
+  // size of each eye (and of the full frame) for a video, after working out whether it is already 3D
+  async function videoGeometry(src, maxEyeW) {
+    const probe = document.createElement('canvas');
+    probe.width = Math.max(2, Math.min(960, src.width)); probe.height = Math.max(2, Math.round(src.height * probe.width / src.width));
+    const ok = await src.draw(probe.getContext('2d', { willReadFrequently: true }), probe.width, probe.height, Math.min(0.5, src.duration / 2));
+    if (!ok) return null;
+    const layout = chooseLayout(probe, probe.width, probe.height);
+    const r = RECTS[layout][0];
+    const ew = src.width * r[2], eh = src.height * r[3], sc = Math.min(1, maxEyeW / ew);
+    const w = Math.max(2, Math.round(ew * sc / 2) * 2), h = Math.max(2, Math.round(eh * sc / 2) * 2);
+    return { w, h, FW: Math.round(w / r[2]), FH: Math.round(h / r[3]), layout };
+  }
+
   async function pickVideoCodec(W, H, fps) {
     const opts = [
       { codec: 'avc1.640033', mux: 'avc' },
@@ -757,9 +845,9 @@
     const rangeSel = $('range').value;
     const dur = rangeSel === 'all' ? src.duration : Math.min(src.duration, parseFloat(rangeSel));
     const frames = Math.max(1, Math.floor(dur * fps));
-    const maxW = parseInt($('vw').value, 10);
-    const sc = Math.min(1, maxW / src.width);
-    const w = Math.max(2, Math.round(src.width * sc / 2) * 2), h = Math.max(2, Math.round(src.height * sc / 2) * 2);
+    const vgeo = await videoGeometry(src, parseInt($('vw').value, 10));
+    if (!vgeo) { status('Couldn\'t read a frame from this video.'); $('startVid').disabled = false; $('cancelVid').classList.add('hide'); src.close(); return; }
+    const { w, h, FW, FH, layout } = vgeo;
     const mode = fmt;
     const W = mode === 'parallel' || mode === 'cross' ? w * 2 : w;
     const H = mode === 'overunder' ? h * 2 : h;
@@ -778,32 +866,41 @@
     const venc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { encErr = e; } });
     venc.configure(vc.cfg);
 
-    const fc = document.createElement('canvas'); fc.width = w; fc.height = h;
+    const fc = document.createElement('canvas'); fc.width = FW; fc.height = FH;
     const fctx = fc.getContext('2d', { willReadFrequently: true });
+    const ecs = [0, 1].map(() => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; });
+    const ectx = ecs.map(c => c.getContext('2d', { willReadFrequently: true }));
+    const nEyes = layout === 'mono' ? 1 : 2;
     const pv = $('vidPreview'); pv.classList.remove('hide');
     const pctx = pv.getContext('2d');
-    let lo = null, hi = null;
+    const lo = [null, null], hi = [null, null], lastRaw = [null, null];
     const t0 = performance.now();
-    let done = 0, stuckNote = '', lastRaw = null;
+    let done = 0, stuckNote = '';
     const fast = $('speed').value === 'fast';
     for (let i = 0; i < frames; i++) {
       if (cancel || encErr) break;
       const t = Math.min(dur - 0.001, (i + 0.5) / fps);
       let got = false;
-      try { got = await src.draw(fctx, w, h, t); } catch (e) { console.warn(e); stuckNote = 'Video decoding failed at ' + t.toFixed(1) + ' s (' + (e.message || e) + ').'; break; }
+      try { got = await src.draw(fctx, FW, FH, t); } catch (e) { console.warn(e); stuckNote = 'Video decoding failed at ' + t.toFixed(1) + ' s (' + (e.message || e) + ').'; break; }
       if (!got) { stuckNote = 'The browser stopped giving frames at ' + t.toFixed(1) + ' s.'; break; }
-      const rgba = fctx.getImageData(0, 0, w, h).data;
-      // fast mode: new depth on every 2nd frame, the frame between reuses it
-      const fresh = !fast || i % 2 === 0 || !lastRaw;
-      const raw = fresh ? await estimateDepth(fc) : lastRaw;
-      lastRaw = raw;
-      if (fresh) {
-        const [l, hh] = percentiles(raw);
-        if (lo === null) { lo = l; hi = hh; } else { lo = lo * 0.8 + l * 0.2; hi = hi * 0.8 + hh * 0.2; }
+      const eyeRGBA = [], eyeDepth = [];
+      for (let k = 0; k < nEyes; k++) {
+        const r = RECTS[layout][k];
+        ectx[k].drawImage(fc, r[0] * FW, r[1] * FH, r[2] * FW, r[3] * FH, 0, 0, w, h);
+        eyeRGBA[k] = ectx[k].getImageData(0, 0, w, h).data;
+        // fast mode: new depth on every 2nd frame, the frame between reuses it
+        const fresh = !fast || i % 2 === 0 || !lastRaw[k];
+        const raw = fresh ? await estimateDepth(ecs[k]) : lastRaw[k];
+        lastRaw[k] = raw;
+        if (fresh) {
+          const [l, hh] = percentiles(raw);
+          if (lo[k] === null) { lo[k] = l; hi[k] = hh; } else { lo[k] = lo[k] * 0.8 + l * 0.2; hi[k] = hi[k] * 0.8 + hh * 0.2; }
+        }
+        eyeDepth[k] = contrastDepth(depthToSize(raw, w, h, lo[k], hi[k]), p.contrast);
       }
-      const depth = contrastDepth(depthToSize(raw, w, h, lo, hi), p.contrast);
-      const L = warp(rgba, depth, w, h, +1, p.maxShift, p.focus, p.frame);
-      const R = warp(rgba, depth, w, h, -1, p.maxShift, p.focus, p.frame);
+      if (nEyes === 1) { eyeRGBA[1] = eyeRGBA[0]; eyeDepth[1] = eyeDepth[0]; }
+      const L = warp(eyeRGBA[0], eyeDepth[0], w, h, +1, p.maxShift, p.focus, p.frame);
+      const R = warp(eyeRGBA[1], eyeDepth[1], w, h, -1, p.maxShift, p.focus, p.frame);
       compose(L, R, w, h, mode, pctx);
       const frame = new VideoFrame(pv, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
       venc.encode(frame, { keyFrame: i % (fps * 2) === 0 });
@@ -856,16 +953,16 @@
     try { src = await openDecoderSource(videoFile); }
     catch (e) { try { src = await openPlayerSource(videoFile, () => {}); } catch (e2) { status(e2.message); $('previewVid').disabled = false; return; } }
     try {
-      const maxW = parseInt($('vw').value, 10), sc = Math.min(1, maxW / src.width);
-      const w = Math.max(2, Math.round(src.width * sc / 2) * 2), h = Math.max(2, Math.round(src.height * sc / 2) * 2);
-      const c = document.createElement('canvas'); c.width = w; c.height = h;
-      const cx = c.getContext('2d', { willReadFrequently: true });
-      const ok = await src.draw(cx, w, h, Math.min(1, src.duration / 2));
+      stopLive();
+      const g = await videoGeometry(src, parseInt($('vw').value, 10));
+      if (!g) throw new Error('Couldn\'t read a frame from this video.');
+      const c = document.createElement('canvas'); c.width = g.FW; c.height = g.FH;
+      const ok = await src.draw(c.getContext('2d', { willReadFrequently: true }), g.FW, g.FH, Math.min(1, src.duration / 2));
       if (!ok) throw new Error('Couldn\'t read a frame from this video.');
-      img = { w, h, rgba: cx.getImageData(0, 0, w, h).data, canvas: c, depth: null, name: videoFile.name.replace(/\.[^.]+$/, '') + '-frame' };
+      img = makeImg(c, videoFile.name.replace(/\.[^.]+$/, '') + '-frame');
       $('imgOut').classList.remove('hide');
       await depthForImage();
-      status('Preview frame ready. Sliders update it live; the video will use the same settings.');
+      status(layoutNote + 'Preview frame ready. Sliders update it live; the video will use the same settings.');
     } catch (e) { status(e.message || String(e)); }
     finally { src.close(); $('previewVid').disabled = false; }
   }
@@ -878,7 +975,7 @@
     return 'Stereo Maker settings: output ' + fmtName + ', depth strength ' + parseFloat($('str').value).toFixed(1) +
       ', screen plane ' + Math.round(parseFloat($('foc').value) * 100) + ', depth contrast ' + $('crv').value + '%' +
       ', depth detail ' + opt('q').replace(/ \(.*\)/, '') + ', frame rate ' + $('fps').value + ' fps, width per eye ' + $('vw').value +
-      ' px, speed ' + ($('speed').value === 'fast' ? 'fast' : 'normal') + ', range ' + opt('range') +
+      ' px, speed ' + ($('speed').value === 'fast' ? 'fast' : 'normal') + ', range ' + opt('range') + ', input ' + opt('inMode') +
       ($('frm').value === 'off' ? ', pop-out frame off' : ', pop-out frame ' + $('frm').value + ' size ' + $('fsz').value + '% break-out ' + $('fthr').value) + '.';
   }
   $('copySettings').onclick = async () => {
@@ -890,24 +987,27 @@
 
 
   // ---------- the picture itself follows the phone's tilt ----------
-  // The result is drawn live with WebGL. outCanvas (hidden) still holds the full-quality render used for saving.
+  // Drawn live with WebGL, for photos and (after "Allow tilt") for videos. outCanvas (hidden) holds the full-quality
+  // photo render used for saving.
   let lc = $('view'), glLosses = 0;
-  let gl = null, prog = null, texImg = null, texDep = null, glFailed = false, texFor = null;
+  let gl = null, prog = null, texImg = [null, null], texDep = [null, null], glFailed = false, texFor = null;
   const LVS = 'attribute vec2 p; varying vec2 uv; void main(){ uv = p * 0.5 + 0.5; uv.y = 1.0 - uv.y; gl_Position = vec4(p, 0.0, 1.0); }';
   const LFS = `precision highp float;
     varying vec2 uv;
     uniform sampler2D img, dep;
+    uniform vec4 rect;            // where this eye sits inside the image texture
     uniform vec2 shift, band;
-    uniform float focus, thr, gray, frameOn;
+    uniform float focus, thr, gray, frameOn, contrast;
     uniform vec3 fcol;
+    float D(vec2 p) { float d = texture2D(dep, p).r; return clamp((d - 0.5) * contrast + 0.5, 0.0, 1.0); }
     void main(){
       vec2 q = uv;
       // find the source pixel that lands here (near things shift more than far ones)
       vec2 p = q;
-      for (int i = 0; i < 12; i++) { float d = texture2D(dep, p).r; p = q - shift * (d - focus); }
+      for (int i = 0; i < 12; i++) { p = q - shift * (D(p) - focus); }
       p = clamp(p, 0.0, 1.0);
-      float d = texture2D(dep, p).r;
-      vec3 c = texture2D(img, p).rgb;
+      float d = D(p);
+      vec3 c = texture2D(img, rect.xy + p * rect.zw).rgb;
       if (frameOn > 0.5) {
         vec2 b = q - shift * (thr - focus);   // the frame sits at the break-out depth
         bool inBand = b.x < band.x || b.x > 1.0 - band.x || b.y < band.y || b.y > 1.0 - band.y;
@@ -920,14 +1020,20 @@
   // iPhones can drop a page's WebGL surface under memory pressure; when that happens, swap in a fresh canvas
   function onLost(e) {
     e.preventDefault(); gl = null; prog = null; texFor = null; depthDirty = true; glLosses++;
+    if (liveVid) liveVid.depIdx = -1;
     if (glLosses > 3) return;   // keeps failing: initGL will fall back to the regular render
     const fresh = lc.cloneNode(false);
     lc.replaceWith(fresh); lc = fresh; hookCanvas(lc);
   }
+  function fallBack() {
+    glFailed = true; gl = null;
+    lc.classList.add('hide'); $('outCanvas').classList.remove('hide'); $('tiltNote').classList.add('hide');
+  }
   function initGL() {
     if (gl && gl.isContextLost()) { gl = null; texFor = null; }
     if (gl) return true;
-    if (glFailed || glLosses > 3) { if (!glFailed) { glFailed = true; lc.classList.add('hide'); $('outCanvas').classList.remove('hide'); $('tiltNote').classList.add('hide'); } return false; }
+    if (glFailed) return false;
+    if (glLosses > 3) { fallBack(); return false; }
     try {
       gl = lc.getContext('webgl', { antialias: false, preserveDrawingBuffer: true });
       if (!gl) throw new Error('no webgl');
@@ -939,30 +1045,24 @@
       const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
       const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-      const mk = (unit) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+      const mk = () => { const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
-      texImg = mk(0); texDep = mk(1);
+      texImg = [mk(), mk()]; texDep = [mk(), mk()];
       gl.uniform1i(gl.getUniformLocation(prog, 'img'), 0); gl.uniform1i(gl.getUniformLocation(prog, 'dep'), 1);
+      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+      if (liveVid) liveVid.depIdx = -1;
       return true;
     } catch (e) {
       if (gl && gl.isContextLost()) { gl = null; return false; }
-      // no WebGL: show the regular render instead
-      console.warn(e); glFailed = true; gl = null;
-      lc.classList.add('hide'); $('outCanvas').classList.remove('hide'); $('tiltNote').classList.add('hide');
+      console.warn(e); fallBack();   // no WebGL: show the regular render instead
       return false;
     }
   }
   const U = (n) => gl.getUniformLocation(prog, n);
-
-  function uploadDepth() {
-    const p = params(img.w), d = contrastDepth(img.depth, p.contrast), u8 = new Uint8Array(d.length);
-    for (let i = 0; i < d.length; i++) u8[i] = d[i] * 255;
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, img.w, img.h, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, u8);
-    depthDirty = false;
-  }
+  function upTex(t, source) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source); }
+  function upDep(t, u8, w, h) { gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, t); gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, w, h, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, u8); }
+  const toU8 = (f) => { const u = new Uint8Array(f.length); for (let i = 0; i < f.length; i++) u[i] = f[i] * 255; return u; };
 
   // phone orientation -> how far it has turned from where tilt was switched on (or last re-centered)
   let baseR = null, curR = null, look = [0, 0], smooth = [0, 0], tiltOn = false;
@@ -1018,17 +1118,121 @@
   }
   hookCanvas(lc);
 
-  function drawEye(x, y, w, h, eyeSign, p) {
+  // ---------- live video (after "Allow tilt"): depth for every frame is worked out once, then the video plays live ----------
+  let liveVid = null;
+  function stopLive() {
+    if (!liveVid) return;
+    try { liveVid.video.pause(); liveVid.video.remove(); URL.revokeObjectURL(liveVid.video.src); } catch (e) {}
+    liveVid = null;
+    $('playLive').classList.add('hide'); $('saveImg').classList.remove('hide'); $('saveDepth').classList.remove('hide');
+    document.querySelector('.thumbs figure').classList.remove('hide');
+  }
+
+  async function allowTiltVideo() {
+    if (!session || !videoFile || converting) return;
+    converting = true; cancel = false;
+    $('allowTilt').disabled = true; $('startVid').disabled = true; $('cancelVid').classList.remove('hide');
+    stopLive();
+    let src;
+    status('Opening video…');
+    try { src = await openDecoderSource(videoFile); }
+    catch (e) {
+      try { src = await openPlayerSource(videoFile, (m) => status(m)); }
+      catch (e2) { status(e2.message || 'Couldn\'t read that video.'); finish(); return; }
+    }
+    function finish() { converting = false; $('allowTilt').disabled = false; $('startVid').disabled = false; $('cancelVid').classList.add('hide'); bar(0); }
+    try {
+      const fps = parseInt($('fps').value, 10);
+      const rangeSel = $('range').value;
+      const dur = rangeSel === 'all' ? src.duration : Math.min(src.duration, parseFloat(rangeSel));
+      const frames = Math.max(1, Math.floor(dur * fps));
+      // depth only needs a modest picture; the video itself plays at full quality
+      const g = await videoGeometry(src, 640);
+      if (!g) throw new Error('Couldn\'t read a frame from this video.');
+      const { w, h, FW, FH, layout } = g, nEyes = layout === 'mono' ? 1 : 2;
+      const DS = nEyes === 2 ? 192 : 256;   // stored depth size per eye (keeps memory down)
+      const fc = document.createElement('canvas'); fc.width = FW; fc.height = FH;
+      const fctx = fc.getContext('2d', { willReadFrequently: true });
+      const ec = document.createElement('canvas'); ec.width = w; ec.height = h;
+      const ectx = ec.getContext('2d', { willReadFrequently: true });
+      const fast = $('speed').value === 'fast';
+      const depths = [[], []], lo = [null, null], hi = [null, null], last = [null, null];
+      const t0 = performance.now();
+      let done = 0;
+      for (let i = 0; i < frames; i++) {
+        if (cancel) break;
+        const t = Math.min(dur - 0.001, (i + 0.5) / fps);
+        if (!(await src.draw(fctx, FW, FH, t))) break;
+        for (let k = 0; k < nEyes; k++) {
+          let u8;
+          if (fast && i % 2 === 1 && last[k]) u8 = last[k];
+          else {
+            const r = RECTS[layout][k];
+            ectx.drawImage(fc, r[0] * FW, r[1] * FH, r[2] * FW, r[3] * FH, 0, 0, w, h);
+            const raw = await estimateDepth(ec);
+            const [l, hh] = percentiles(raw);
+            if (lo[k] === null) { lo[k] = l; hi[k] = hh; } else { lo[k] = lo[k] * 0.8 + l * 0.2; hi[k] = hi[k] * 0.8 + hh * 0.2; }
+            u8 = toU8(depthToSize(raw, DS, DS, lo[k], hi[k]));
+          }
+          depths[k].push(u8); last[k] = u8;
+        }
+        done = i + 1;
+        const el = (performance.now() - t0) / 1000, per = el / done;
+        bar(done / frames);
+        status('Preparing tilt: frame ' + done + ' / ' + frames + ' · about ' + fmtTime(per * (frames - done)) + ' left');
+        await sleep(0);
+      }
+      src.close();
+      if (!done) { status('Cancelled.'); finish(); return; }
+      if (nEyes === 1) depths[1] = depths[0];
+
+      // play the original file; each frame is drawn through a 2D canvas so phone rotation is handled
+      const v = document.createElement('video');
+      v.playsInline = true; v.setAttribute('playsinline', ''); v.loop = true; v.preload = 'auto';
+      v.style.cssText = 'position:fixed;left:0;bottom:0;width:4px;height:4px;opacity:0.01;pointer-events:none;z-index:-1';
+      v.src = URL.createObjectURL(videoFile);
+      document.body.appendChild(v);
+      await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(new Error('Couldn\'t play this video here.')); setTimeout(res, 8000); });
+      const frameCanvas = document.createElement('canvas');
+      const fscale = Math.min(1, 2048 / Math.max(v.videoWidth || FW, v.videoHeight || FH));
+      frameCanvas.width = Math.round((v.videoWidth || FW) * fscale); frameCanvas.height = Math.round((v.videoHeight || FH) * fscale);
+      img = null;
+      liveVid = { video: v, frameCanvas, fctx: frameCanvas.getContext('2d'), layout, depths, DS, fps, frames: done, dur: done / fps,
+        eyeW: frameCanvas.width * RECTS[layout][0][2], eyeH: frameCanvas.height * RECTS[layout][0][3], depIdx: -1, contrastAt: null };
+      $('imgOut').classList.remove('hide'); $('outCanvas').classList.add('hide');
+      document.querySelector('.thumbs figure').classList.add('hide');
+      $('saveImg').classList.add('hide'); $('saveDepth').classList.add('hide');
+      $('playLive').classList.remove('hide'); $('playLive').textContent = 'Pause';
+      try { await v.play(); } catch (e) { $('playLive').textContent = 'Play'; }
+      status(layoutNote + 'Tilt ready for ' + done + ' frames. The video plays above; tap it to turn tilt on. Every setting updates live. Convert video still saves the MP4.');
+      $('imgOut').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) { console.warn(e); status(e.message || String(e)); try { src.close(); } catch (x) {} }
+    finish();
+  }
+  $('allowTilt').onclick = allowTiltVideo;
+  $('playLive').onclick = () => {
+    if (!liveVid) return;
+    const v = liveVid.video;
+    if (v.paused) { v.play().catch(() => {}); $('playLive').textContent = 'Pause'; }
+    else { v.pause(); $('playLive').textContent = 'Play'; }
+  };
+
+  function drawEye(x, y, w, h, eye, p, ew, eh, rect) {
     gl.viewport(x, y, w, h);
-    const strength = parseFloat($('str').value) / 100;
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, rect ? texImg[0] : texImg[eye]);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep[eye]);
+    const r = rect ? rect[eye] : [0, 0, 1, 1];
+    gl.uniform4f(U('rect'), r[0], r[1], r[2], r[3]);
+    const strength = parseFloat($('str').value) / 100, sign = eye === 0 ? 1 : -1;
     // turning moves the viewpoint (5% of the width per 25 degrees at sensitivity 1); separate from depth strength
     const dir = $('tdir').value === 'reverse' ? 1 : -1;
-    gl.uniform2f(U('shift'), eyeSign * strength / 2 + dir * smooth[0] * 0.05, dir * smooth[1] * 0.05);
+    gl.uniform2f(U('shift'), sign * strength / 2 + dir * smooth[0] * 0.05, dir * smooth[1] * 0.05);
     gl.uniform1f(U('focus'), p.focus);
+    gl.uniform1f(U('contrast'), 1 / Math.max(0.002, 1 - p.contrast));
     gl.uniform1f(U('frameOn'), p.frame ? 1 : 0);
     if (p.frame) {
-      const band = p.frame.size * Math.min(img.w, img.h);
-      gl.uniform2f(U('band'), band / img.w, band / img.h);
+      const band = p.frame.size * Math.min(ew, eh);
+      gl.uniform2f(U('band'), band / ew, band / eh);
       gl.uniform1f(U('thr'), p.frame.thr);
       gl.uniform3f(U('fcol'), p.frame.color[0] / 255, p.frame.color[1] / 255, p.frame.color[2] / 255);
     }
@@ -1037,35 +1241,81 @@
 
   function viewFrame() {
     requestAnimationFrame(viewFrame);
-    if (!img || !img.depth || !initGL()) return;
-    if (texFor !== img) {
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texImg);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img.canvas);
-      texFor = img; depthDirty = true;
+    const photo = img && img.eyes[0].depth && img.eyes[1].depth;
+    if ((!photo && !liveVid) || !initGL()) return;
+    let ew, eh, rect = null;
+    if (liveVid) {
+      const v = liveVid.video;
+      if (v.readyState < 2) return;
+      liveVid.fctx.drawImage(v, 0, 0, liveVid.frameCanvas.width, liveVid.frameCanvas.height);
+      upTex(texImg[0], liveVid.frameCanvas);
+      const idx = Math.min(liveVid.frames - 1, Math.max(0, Math.floor(v.currentTime * liveVid.fps)));
+      if (idx !== liveVid.depIdx) {
+        upDep(texDep[0], liveVid.depths[0][idx], liveVid.DS, liveVid.DS);
+        upDep(texDep[1], liveVid.depths[1][idx], liveVid.DS, liveVid.DS);
+        liveVid.depIdx = idx;
+      }
+      if (v.currentTime > liveVid.dur + 0.05) v.currentTime = 0;   // only the prepared part loops
+      ew = liveVid.eyeW; eh = liveVid.eyeH; rect = RECTS[liveVid.layout];
+    } else {
+      if (texFor !== img) {
+        upTex(texImg[0], img.eyes[0].canvas);
+        if (img.eyes[1] !== img.eyes[0]) upTex(texImg[1], img.eyes[1].canvas);
+        texFor = img; depthDirty = true;
+      }
+      if (depthDirty) {
+        upDep(texDep[0], toU8(img.eyes[0].depth), img.w, img.h);
+        upDep(texDep[1], img.eyes[1] === img.eyes[0] ? toU8(img.eyes[0].depth) : toU8(img.eyes[1].depth), img.w, img.h);
+        depthDirty = false;
+      }
+      ew = img.w; eh = img.h;
     }
-    if (depthDirty) uploadDepth();
     smooth[0] += (look[0] - smooth[0]) * 0.2; smooth[1] += (look[1] - smooth[1]) * 0.2;
     // canvas has the same shape as the saved output
-    const ew = img.w, eh = img.h;
     const OW = fmt === 'parallel' || fmt === 'cross' ? ew * 2 : ew, OH = fmt === 'overunder' ? eh * 2 : eh;
     const sc = Math.min(1, 2048 / Math.max(OW, OH)), W = Math.round(OW * sc), H = Math.round(OH * sc);
     if (lc.width !== W || lc.height !== H) { lc.width = W; lc.height = H; }
-    const p = params(img.w);
+    const p = params(ew);
+    const monoPhoto = !liveVid && img.eyes[1] === img.eyes[0];
     gl.colorMask(true, true, true, true); gl.viewport(0, 0, W, H); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform1f(U('gray'), 0);
+    const draw = (x, y, w, h, k) => {
+      if (monoPhoto) drawEyeMono(x, y, w, h, k, p, ew, eh);   // same picture and depth, opposite shift for each eye
+      else drawEye(x, y, w, h, k, p, ew, eh, rect);
+    };
     if (fmt === 'anaglyph') {
-      gl.uniform1f(U('gray'), 1); gl.colorMask(true, false, false, false); drawEye(0, 0, W, H, +1, p);
-      gl.uniform1f(U('gray'), 0); gl.colorMask(false, true, true, false); drawEye(0, 0, W, H, -1, p);
+      gl.uniform1f(U('gray'), 1); gl.colorMask(true, false, false, false); draw(0, 0, W, H, 0);
+      gl.uniform1f(U('gray'), 0); gl.colorMask(false, true, true, false); draw(0, 0, W, H, 1);
       gl.colorMask(true, true, true, true);
     } else if (fmt === 'overunder') {
       const hh = Math.floor(H / 2);
-      drawEye(0, H - hh, W, hh, +1, p);   // GL origin is bottom-left, so this is the top half: left eye
-      drawEye(0, 0, W, hh, -1, p);
+      draw(0, H - hh, W, hh, 0);   // GL origin is bottom-left, so this is the top half: left eye
+      draw(0, 0, W, hh, 1);
     } else {
-      const leftSign = fmt === 'cross' ? -1 : +1, half = Math.floor(W / 2);
-      drawEye(0, 0, half, H, leftSign, p);
-      drawEye(half, 0, W - half, H, -leftSign, p);
+      const half = Math.floor(W / 2), first = fmt === 'cross' ? 1 : 0;
+      draw(0, 0, half, H, first);
+      draw(half, 0, W - half, H, 1 - first);
     }
+  }
+  // a normal photo: both eyes come from one picture and one depth map, shifted opposite ways
+  function drawEyeMono(x, y, w, h, k, p, ew, eh) {
+    gl.viewport(x, y, w, h);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texImg[0]);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep[0]);
+    gl.uniform4f(U('rect'), 0, 0, 1, 1);
+    const strength = parseFloat($('str').value) / 100, sign = k === 0 ? 1 : -1;
+    const dir = $('tdir').value === 'reverse' ? 1 : -1;
+    gl.uniform2f(U('shift'), sign * strength / 2 + dir * smooth[0] * 0.05, dir * smooth[1] * 0.05);
+    gl.uniform1f(U('focus'), p.focus);
+    gl.uniform1f(U('contrast'), 1 / Math.max(0.002, 1 - p.contrast));
+    gl.uniform1f(U('frameOn'), p.frame ? 1 : 0);
+    if (p.frame) {
+      const band = p.frame.size * Math.min(ew, eh);
+      gl.uniform2f(U('band'), band / ew, band / eh);
+      gl.uniform1f(U('thr'), p.frame.thr);
+      gl.uniform3f(U('fcol'), p.frame.color[0] / 255, p.frame.color[1] / 255, p.frame.color[2] / 255);
+    }
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
   requestAnimationFrame(viewFrame);
   $('recenter').onclick = () => { baseR = curR; look = [0, 0]; };
@@ -1084,6 +1334,7 @@
   let raf = 0;
   const live = () => { updLabels(); cancelAnimationFrame(raf); raf = requestAnimationFrame(renderImage); };
   $('q').onchange = () => { if (img && !converting) depthForImage(); };
+  $('inMode').onchange = () => { if (img && !converting && img.full) { img = makeImg(img.full, img.name); depthForImage(); } };
   $('str').oninput = live; $('foc').oninput = live; $('crv').oninput = () => { depthDirty = true; live(); }; $('fsz').oninput = live; $('fthr').oninput = live; $('frm').onchange = live;
   $('fmt').onclick = (e) => {
     const b = e.target.closest('button'); if (!b) return;
@@ -1096,6 +1347,7 @@
   // ---------- input ----------
   function handle(file) {
     if (!file) return;
+    stopLive();
     if (file.type.startsWith('video/') || /\.(mp4|mov|webm|m4v|mkv)$/i.test(file.name)) setupVideo(file);
     else { $('vidOut').classList.add('hide'); $('vidOpts').classList.add('hide'); processImage(file); }
   }
