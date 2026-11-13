@@ -64,6 +64,17 @@
     <small id="dropNote">JPG, PNG, HEIC (if your browser reads it), MP4, MOV, WebM</small>
   </label>
 
+  <div style="margin-top:12px">
+    <div class="seg" id="inSeg">
+      <button data-v="auto" class="on">Auto-detect</button>
+      <button data-v="mono">Normal</button>
+      <button data-v="sbs">Already 3D</button>
+      <button data-v="ou">3D over-under</button>
+    </div>
+    <select id="inMode" class="hide"><option value="auto" selected>Auto-detect</option><option value="mono">Normal</option><option value="sbs">Already 3D (side-by-side)</option><option value="cross">Cross-eye 3D</option><option value="ou">3D over-under</option></select>
+    <div class="note" id="detNote" style="margin-top:6px">Tap "Already 3D" for a side-by-side 3D file, or leave it on Auto-detect.</div>
+  </div>
+
   <section class="out hide" id="imgOut">
     <canvas id="view" style="width:100%;display:block;border-radius:8px;background:#000;touch-action:manipulation"></canvas>
     <canvas id="outCanvas" class="hide" style="width:100%"></canvas>
@@ -100,9 +111,6 @@
 
   <div class="panel">
     <div class="row">
-      <label class="f">Input
-        <select id="inMode"><option value="auto" selected>Auto-detect</option><option value="mono">Normal photo/video</option><option value="sbs">Side-by-side 3D</option><option value="cross">Cross-eye 3D</option><option value="ou">Over-under 3D</option></select>
-      </label>
       <div class="f" style="flex:2;min-width:260px">Output
         <div class="seg" id="fmt">
           <button data-v="parallel" class="on">Parallel</button>
@@ -509,6 +517,7 @@
   function chooseLayout(src, sw, sh) {
     const sel = $('inMode').value;
     const layout = sel === 'auto' ? detectLayout(src, sw, sh) : sel;
+    showDetected(layout, sel);
     if (sel === 'auto' && layout !== 'mono' && parseFloat($('str').value) !== 0) {
       $('str').value = 0; updLabels();
       layoutNote = 'Found a ' + LAYOUT_NAME[layout] + ' file, so depth strength was set to 0 (it adds depth on top of the existing 3D). ';
@@ -516,6 +525,23 @@
     return layout;
   }
   let layoutNote = '';
+  function showDetected(layout, sel) {
+    $('detNote').textContent = sel === 'auto'
+      ? (layout === 'mono' ? 'Detected: normal. If it is actually 3D, tap "Already 3D".' : 'Detected: ' + LAYOUT_NAME[layout] + '.')
+      : 'Using: ' + LAYOUT_NAME[layout] + '.';
+  }
+  async function detectVideo(file) {
+    let src;
+    try { src = await openDecoderSource(file); } catch (e) { try { src = await openPlayerSource(file, () => {}); } catch (e2) { return; } }
+    try {
+      const c = document.createElement('canvas'); c.width = Math.max(2, Math.min(960, src.width)); c.height = Math.max(2, Math.round(src.height * c.width / src.width));
+      if (await src.draw(c.getContext('2d', { willReadFrequently: true }), c.width, c.height, Math.min(0.5, src.duration / 2)) && videoFile === file) {
+        const sel = $('inMode').value;
+        showDetected(sel === 'auto' ? detectLayout(c, c.width, c.height) : sel, sel);
+      }
+    } catch (e) {}
+    src.close();
+  }
   function cropEye(srcCanvas, r) {
     const W = srcCanvas.width, H = srcCanvas.height;
     const sx = Math.round(r[0] * W), sy = Math.round(r[1] * H), sw = Math.round(r[2] * W), sh = Math.round(r[3] * H);
@@ -609,6 +635,8 @@
       $('startVid').disabled = true;
     }
     status(session ? 'Video loaded. Pick settings and press Convert. Try "First 2 s" to check the look before a full run.' : 'Video loaded — waiting for the depth model…');
+    $('detNote').textContent = 'Checking whether this video is already 3D…';
+    detectVideo(file);
   }
 
   function loadVideoEl(file) {
@@ -1334,7 +1362,15 @@
   let raf = 0;
   const live = () => { updLabels(); cancelAnimationFrame(raf); raf = requestAnimationFrame(renderImage); };
   $('q').onchange = () => { if (img && !converting) depthForImage(); };
-  $('inMode').onchange = () => { if (img && !converting && img.full) { img = makeImg(img.full, img.name); depthForImage(); } };
+  $('inSeg').onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    e.preventDefault();
+    $('inMode').value = b.dataset.v;
+    [...$('inSeg').children].forEach(x => x.classList.toggle('on', x === b));
+    if (img && !converting && img.full && !liveVid) { img = makeImg(img.full, img.name); depthForImage(); }
+    else if (videoFile && $('imgOut').classList.contains('hide')) { $('detNote').textContent = 'Checking…'; detectVideo(videoFile); }
+    else if (b.dataset.v !== 'auto') showDetected(b.dataset.v, b.dataset.v);
+  };
   $('str').oninput = live; $('foc').oninput = live; $('crv').oninput = () => { depthDirty = true; live(); }; $('fsz').oninput = live; $('fthr').oninput = live; $('frm').onchange = live;
   $('fmt').onclick = (e) => {
     const b = e.target.closest('button'); if (!b) return;
