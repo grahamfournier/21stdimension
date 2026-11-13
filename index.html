@@ -2,188 +2,1091 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>21st Dimension</title>
+<link rel="icon" href="data:,">
 <style>
-  :root { --bg: #0e0f11; --panel: rgba(22,24,27,.92); --line: #2a2e34; --text: #e8e6e3; --dim: #8b8f96; }
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; height: 100%; background: #000; color: var(--text);
-    font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; overflow: hidden; }
-  canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; touch-action: none; }
-  .bar { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
-    background: var(--panel); border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
-    transition: transform .25s; }
-  .bar.hidden { transform: translateY(100%); }
-  .btn { background: var(--text); color: #000; border: 0; border-radius: 8px; padding: 9px 14px; font: inherit; font-weight: 600; font-size: 14px; }
-  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
-  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .06em; flex: 1; min-width: 120px; }
-  input[type=range] { width: 100%; accent-color: var(--text); }
+  :root {
+    --bg: #0e0f11; --panel: #16181b; --line: #26292e; --text: #e8e6e3; --dim: #8b8f96;
+    --accent: #e8e6e3; --red: #ff5a4e; --cyan: #3ad4e0;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 28px 18px 60px; }
+  h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 4px; }
+  h1 .r { color: var(--red); font-size: 12px; vertical-align: middle; margin-left: 6px; } h1 .c { color: var(--cyan); font-size: 12px; vertical-align: middle; margin-left: -2px; }
+  .sub { color: var(--dim); margin: 0 0 22px; font-size: 14px; }
+  .drop { display: block; border: 1px dashed #3a3e45; border-radius: 12px; padding: 34px 18px; text-align: center;
+    cursor: pointer; transition: border-color .15s, background .15s; background: var(--panel); }
+  .drop:hover, .drop.over { border-color: var(--text); background: #1b1e22; }
+  .drop b { font-weight: 600; } .drop small { display: block; color: var(--dim); margin-top: 6px; }
   input[type=file] { display: none; }
-  .status { font-size: 13px; color: var(--dim); width: 100%; }
-  .intro { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; }
-  .intro h1 { font-size: 22px; font-weight: 600; margin: 0; }
-  .intro p { color: var(--dim); margin: 0; max-width: 340px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-top: 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 18px 26px; align-items: flex-end; }
+  label.f, div.f { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--dim);
+    text-transform: uppercase; letter-spacing: .06em; min-width: 150px; flex: 1; }
+  label.f span.v { color: var(--text); text-transform: none; letter-spacing: 0; float: right; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { flex: 1; background: transparent; color: var(--dim); border: 0; padding: 8px 10px; font: inherit;
+    font-size: 13px; cursor: pointer; white-space: nowrap; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--text); color: var(--bg); }
+  input[type=range] { width: 100%; accent-color: var(--text); }
+  select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: inherit; font-size: 14px; }
+  .btn { background: var(--text); color: var(--bg); border: 0; border-radius: 8px; padding: 10px 16px; font: inherit;
+    font-weight: 600; font-size: 14px; cursor: pointer; }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); font-weight: 500; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
+  .status { color: var(--dim); font-size: 13px; margin-top: 10px; min-height: 18px; }
+  .bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 10px; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--text); transition: width .2s; }
+  .out { margin-top: 16px; }
+  .out canvas, .out video { width: 100%; height: auto; display: block; border-radius: 8px; background: #000; }
+  .thumbs { display: flex; gap: 12px; margin-top: 12px; align-items: flex-start; }
+  .thumbs figure { margin: 0; flex: 0 0 160px; }
+  .thumbs canvas { width: 160px; border-radius: 6px; display: block; }
+  .thumbs figcaption { font-size: 12px; color: var(--dim); margin-top: 4px; }
+  .note { font-size: 13px; color: var(--dim); }
   .hide { display: none !important; }
+  #live { position: fixed; inset: 0; background: #000; z-index: 50; }
+  #liveCanvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .livebar { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    background: rgba(22,24,27,.92); border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+  .livebar.gone { display: none; }
+  .tip { font-size: 13px; color: var(--dim); line-height: 1.5; margin-top: 4px; }
 </style>
 </head>
 <body>
-<canvas id="gl"></canvas>
-<div class="intro" id="intro">
-  <h1>21st Dimension</h1>
-  <p>Pick a photo. Depth is worked out on your phone, then tilting the phone lets you look around the scene.</p>
-  <label class="btn">Choose photo<input type="file" id="file" accept="image/*"></label>
-  <p class="status" id="introStatus">Loading depth model…</p>
-</div>
-<div class="bar hide" id="bar">
-  <button class="btn" id="tiltBtn">Enable tilt</button>
-  <button class="btn ghost" id="center">Re-center</button>
-  <label class="btn ghost">New photo<input type="file" id="file2" accept="image/*"></label>
-  <label class="f">Depth <input type="range" id="amt" min="0" max="12" step="0.1" value="4"></label>
-  <label class="f">Pivot <input type="range" id="piv" min="0" max="1" step="0.01" value="0.4"></label>
-  <label class="f">Sensitivity <input type="range" id="sens" min="0.3" max="3" step="0.05" value="1"></label>
-  <div class="status" id="status"></div>
+<main>
+  <h1>21st Dimension <span class="r">●</span><span class="c">●</span></h1>
+  <p class="sub">One photo or video in, a stereoscopic pair out. Depth is estimated on your device with Depth Anything V2; nothing is uploaded.</p>
+
+  <label class="drop" id="drop">
+    <input type="file" id="file" accept="image/*,video/*">
+    <b>Choose or drop an image or video</b>
+    <small id="dropNote">JPG, PNG, HEIC (if your browser reads it), MP4, MOV, WebM</small>
+  </label>
+
+  <div class="panel">
+    <div class="row">
+      <div class="f" style="flex:2;min-width:260px">Output
+        <div class="seg" id="fmt">
+          <button data-v="parallel" class="on">Parallel</button>
+          <button data-v="cross">Cross-eye</button>
+          <button data-v="anaglyph">Red/Cyan</button>
+          <button data-v="overunder">Over-under</button>
+        </div>
+      </div>
+      <label class="f">Depth detail
+        <select id="q"><option value="518" selected>High</option><option value="392">Medium (~2× faster)</option><option value="252">Low (~5× faster)</option></select>
+      </label>
+      <label class="f">Depth strength <span class="v" id="strV"></span>
+        <input type="range" id="str" min="0.5" max="40" step="0.1" value="3">
+      </label>
+      <label class="f">Screen plane <span class="v" id="focV"></span>
+        <input type="range" id="foc" min="-0.5" max="1.5" step="0.01" value="0.35">
+      </label>
+      <label class="f">Depth contrast <span class="v" id="crvV"></span>
+        <input type="range" id="crv" min="0" max="100" step="1" value="0">
+      </label>
+    </div>
+    <div class="row" style="margin-top:16px">
+      <label class="f">Pop-out frame
+        <select id="frm"><option value="off" selected>Off</option><option value="black">Black</option><option value="white">White</option></select>
+      </label>
+      <label class="f">Frame size <span class="v" id="fszV"></span>
+        <input type="range" id="fsz" min="2" max="25" step="0.5" value="8">
+      </label>
+      <label class="f">Break-out depth <span class="v" id="fthrV"></span>
+        <input type="range" id="fthr" min="0" max="100" step="1" value="55">
+      </label>
+    </div>
+    <div class="row hide" id="vidOpts" style="margin-top:16px">
+      <label class="f">Frame rate
+        <select id="fps"><option value="8">8 fps</option><option value="12">12 fps</option><option value="15" selected>15 fps</option><option value="24">24 fps</option><option value="30">30 fps</option></select>
+      </label>
+      <label class="f">Width per eye
+        <select id="vw"><option value="640">640 px</option><option value="960" selected>960 px</option><option value="1280">1280 px</option><option value="1920">1920 px</option></select>
+      </label>
+      <label class="f">Speed
+        <select id="speed"><option value="normal" selected>Normal (depth every frame)</option><option value="fast">Fast (depth every 2nd frame)</option></select>
+      </label>
+      <label class="f">Range
+        <select id="range"><option value="all" selected>Whole video</option><option value="10">First 10 s</option><option value="5">First 5 s</option><option value="2">First 2 s (test)</option></select>
+      </label>
+    </div>
+    <p class="tip" id="tip">Screen plane: low sits the scene behind the screen, high makes it come out at you. Depth contrast pushes the far half of the depth map toward black and the near half toward white. Pop-out frame draws a border around the picture; anything nearer than the break-out depth is drawn over it, so it bursts out of the frame.</p>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="status" id="status">Loading depth model…</div>
+    <div class="actions">
+      <button class="btn ghost" id="copySettings">Copy settings for Claude</button>
+      <span class="note" id="copyNote">Long video? Send it to Claude in the chat with these settings, and it gets converted in the cloud while your phone is free.</span>
+    </div>
+    <textarea id="settingsText" class="hide" readonly rows="3" style="width:100%;margin-top:10px;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font:13px/1.4 ui-monospace,monospace"></textarea>
+  </div>
+
+  <section class="out hide" id="imgOut">
+    <canvas id="outCanvas"></canvas>
+    <div class="thumbs">
+      <figure><canvas id="depthCanvas"></canvas><figcaption>Depth map (bright = near)</figcaption></figure>
+      <div class="actions" style="margin-top:0;flex:1">
+        <button class="btn" id="liveBtn">Live 3D with tilt</button>
+        <button class="btn ghost" id="saveImg">Save image</button>
+        <button class="btn ghost" id="saveDepth">Save depth map</button>
+        <span class="note" id="saveNote"></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="out hide" id="vidOut">
+    <div class="actions" style="margin-top:0">
+      <button class="btn" id="startVid" disabled>Convert video</button>
+      <button class="btn ghost" id="previewVid" disabled>Preview a frame</button>
+      <button class="btn ghost hide" id="cancelVid">Stop and keep</button>
+      <span class="note" id="vidInfo"></span>
+    </div>
+    <canvas id="vidPreview" class="hide" style="margin-top:14px"></canvas>
+    <video id="vidResult" class="hide" controls playsinline loop style="margin-top:14px"></video>
+    <div class="actions">
+      <button class="btn hide" id="saveVid">Save MP4</button>
+      <span class="note" id="vidSaveNote"></span>
+    </div>
+  </section>
+</main>
+
+<div id="live" class="hide">
+  <canvas id="liveCanvas"></canvas>
+  <div class="livebar" id="livebar">
+    <button class="btn" id="tiltOn">Enable tilt</button>
+    <button class="btn ghost" id="recenter">Re-center</button>
+    <button class="btn ghost" id="reverse">Reverse</button>
+    <button class="btn ghost" id="liveClose">Close</button>
+    <label class="f">Look-around <span class="v" id="lookV"></span><input type="range" id="look" min="0" max="15" step="0.1" value="5"></label>
+    <label class="f">Sensitivity <span class="v" id="sensV"></span><input type="range" id="sens" min="0.3" max="3" step="0.05" value="1"></label>
+    <div class="note" id="liveNote" style="width:100%">Tap "Enable tilt", then tilt or turn the phone. Tap the picture to hide these controls. Depth strength, screen plane, contrast, output and frame from the main page all apply.</div>
+  </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.wasm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js"></script>
 <script>
 (() => {
   const $ = id => document.getElementById(id);
+  const modelSize = () => parseInt($('q').value, 10); // multiple of 14
+  const MEAN = [0.485, 0.456, 0.406], STD = [0.229, 0.224, 0.225];
+  let session = null, downloads = null;
+  let fmt = 'parallel';
+  let img = null; // {w,h,rgba,depth}
+  let videoFile = null, cancel = false, lastVideo = null, depthDirty = true;
+
+  const status = (t) => { $('status').textContent = t; };
+  const bar = (p) => { $('bar').style.width = (Math.max(0, Math.min(1, p)) * 100).toFixed(1) + '%'; };
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+  // ---------- saving ----------
+  async function save(filename, blob, noteEl) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    noteEl.textContent = 'Saved as ' + filename + '.';
+  }
+
+  // ---------- model ----------
   const ORT_CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
-  const MEAN = [0.485, 0.456, 0.406], STD = [0.229, 0.224, 0.225], MODEL = 392;
-  let session = null, pending = null;
+  // files are split so the host will serve them; the .wasm extension is only for the host
+  const PARTS = {
+    small: [['depth-model.onnx', 35600343]],
+  };
 
-  // ---------- depth model ----------
-  async function loadModel() {
-    ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
-    ort.env.wasm.wasmPaths = ORT_CDN;
-    const res = await fetch('depth-model.onnx');
-    const total = +res.headers.get('content-length') || 35600000;
-    const reader = res.body.getReader(), chunks = []; let got = 0;
-    for (;;) {
-      const { done, value } = await reader.read(); if (done) break;
-      chunks.push(value); got += value.length;
-      $('introStatus').textContent = 'Loading depth model… ' + Math.round(got / 1e6) + ' / ' + Math.round(total / 1e6) + ' MB';
+  async function fetchParts(lists, label) {
+    const base = new URL('.', location.href).href;
+    const all = [].concat(...lists);
+    const total = all.reduce((a, p) => a + p[1], 0);
+    const outs = lists.map(l => new Uint8Array(l.reduce((a, p) => a + p[1], 0)));
+    let got = 0;
+    for (let li = 0; li < lists.length; li++) {
+      let off = 0;
+      for (const [name] of lists[li]) {
+        const res = await fetch(base + name);
+        if (!res.ok) throw new Error(name + ' ' + res.status);
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          outs[li].set(value, off); off += value.length; got += value.length;
+          bar(got / total);
+          status(label + ' ' + (got / 1e6).toFixed(0) + ' / ' + (total / 1e6).toFixed(0) + ' MB');
+        }
+      }
     }
-    const buf = new Uint8Array(got); let o = 0; for (const c of chunks) { buf.set(c, o); o += c.length; }
-    session = await ort.InferenceSession.create(buf, { executionProviders: ['wasm'] });
-    $('introStatus').textContent = 'Ready.';
-    if (pending) { const f = pending; pending = null; open(f); }
+    return outs;
   }
 
-  async function depthOf(canvas) {
-    const m = document.createElement('canvas'); m.width = m.height = MODEL;
-    const mc = m.getContext('2d', { willReadFrequently: true }); mc.drawImage(canvas, 0, 0, MODEL, MODEL);
-    const px = mc.getImageData(0, 0, MODEL, MODEL).data, N = MODEL * MODEL, x = new Float32Array(3 * N);
-    for (let i = 0; i < N; i++) for (let c = 0; c < 3; c++) x[i + c * N] = (px[i * 4 + c] / 255 - MEAN[c]) / STD[c];
-    const feeds = {}; feeds[session.inputNames[0]] = new ort.Tensor('float32', x, [1, 3, MODEL, MODEL]);
-    const raw = (await session.run(feeds))[session.outputNames[0]].data;
-    const s = Array.from(raw.filter((_, i) => i % 7 === 0)).sort((a, b) => a - b);
-    const lo = s[Math.floor(s.length * 0.01)], hi = s[Math.floor(s.length * 0.995)];
-    const d = new Uint8Array(N);
-    for (let i = 0; i < N; i++) d[i] = Math.max(0, Math.min(255, (raw[i] - lo) / (hi - lo) * 255));
-    return grow(d, MODEL, 2);
+  function loadScript(src) {
+    return new Promise((res, rej) => {
+      const el = document.createElement('script'); el.src = src;
+      el.onload = res; el.onerror = () => rej(new Error('couldn\'t load ' + src));
+      document.head.appendChild(el);
+    });
   }
-  // near regions grow a little so subject edges move with the subject
-  function grow(d, n, r) {
-    const t = new Uint8Array(d.length), o = new Uint8Array(d.length);
-    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { let m = 0; for (let k = -r; k <= r; k++) { const v = d[y * n + Math.min(n - 1, Math.max(0, x + k))]; if (v > m) m = v; } t[y * n + x] = m; }
-    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { let m = 0; for (let k = -r; k <= r; k++) { const v = t[Math.min(n - 1, Math.max(0, y + k)) * n + x]; if (v > m) m = v; } o[y * n + x] = m; }
+
+  async function startCpu() {
+    if (!window.ort) {
+      await loadScript(ORT_CDN + 'ort.wasm.min.js');
+      ort.env.wasm.wasmPaths = ORT_CDN;
+    }
+    ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+    const [model] = await fetchParts([PARTS.small], 'Loading depth model…');
+    status('Starting depth engine…');
+    session = await ort.InferenceSession.create(model, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
+  }
+
+  async function loadModel() {
+    await startCpu();
+    bar(0);
+    status('Ready. Choose an image or video.');
+    if (videoFile) { $('startVid').disabled = false; $('previewVid').disabled = false; }
+    if (pendingImage) { const p = pendingImage; pendingImage = null; processImage(p); }
+  }
+
+  let pendingImage = null;
+
+  // ---------- depth ----------
+  const mCanvas = document.createElement('canvas');
+  const mCtx = mCanvas.getContext('2d', { willReadFrequently: true });
+
+  async function estimateDepth(source) {
+    const MODEL = modelSize();
+    if (mCanvas.width !== MODEL) { mCanvas.width = MODEL; mCanvas.height = MODEL; }
+    mCtx.drawImage(source, 0, 0, MODEL, MODEL);
+    const px = mCtx.getImageData(0, 0, MODEL, MODEL).data;
+    const N = MODEL * MODEL, x = new Float32Array(3 * N);
+    for (let i = 0; i < N; i++) {
+      x[i] = (px[i * 4] / 255 - MEAN[0]) / STD[0];
+      x[i + N] = (px[i * 4 + 1] / 255 - MEAN[1]) / STD[1];
+      x[i + 2 * N] = (px[i * 4 + 2] / 255 - MEAN[2]) / STD[2];
+    }
+    const feeds = {}; feeds[session.inputNames[0]] = new ort.Tensor('float32', x, [1, 3, MODEL, MODEL]);
+    const r = await session.run(feeds);
+    const out = r[session.outputNames[0]].data; // MODEL*MODEL, larger = nearer
+    out.n = MODEL;
+    return out;
+  }
+
+  function percentiles(d) {
+    const step = Math.max(1, Math.floor(d.length / 20000)), s = [];
+    for (let i = 0; i < d.length; i += step) s.push(d[i]);
+    s.sort((a, b) => a - b);
+    return [s[Math.floor(s.length * 0.01)], s[Math.floor(s.length * 0.995)]];
+  }
+
+  // resize raw depth (MODEL x MODEL) to w x h, normalize to 0..1 with lo/hi, then smooth
+  function depthToSize(raw, w, h, lo, hi) {
+    const MODEL = raw.n, out = new Float32Array(w * h), sx = MODEL / w, sy = MODEL / h, inv = 1 / Math.max(1e-6, hi - lo);
+    for (let y = 0; y < h; y++) {
+      let fy = (y + 0.5) * sy - 0.5; if (fy < 0) fy = 0; if (fy > MODEL - 1) fy = MODEL - 1;
+      const y0 = fy | 0, y1 = Math.min(MODEL - 1, y0 + 1), ty = fy - y0;
+      for (let x = 0; x < w; x++) {
+        let fx = (x + 0.5) * sx - 0.5; if (fx < 0) fx = 0; if (fx > MODEL - 1) fx = MODEL - 1;
+        const x0 = fx | 0, x1 = Math.min(MODEL - 1, x0 + 1), tx = fx - x0;
+        const a = raw[y0 * MODEL + x0], b = raw[y0 * MODEL + x1], c = raw[y1 * MODEL + x0], d = raw[y1 * MODEL + x1];
+        let v = ((a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty - lo) * inv;
+        out[y * w + x] = v < 0 ? 0 : v > 1 ? 1 : v;
+      }
+    }
+    const r = Math.max(1, Math.round(w / 400));
+    return boxBlur(maxFilter(out, w, h, r), w, h, Math.max(1, Math.round(r / 2)));
+  }
+
+  // grow near regions so foreground edge pixels move with the foreground instead of smearing into the background
+  function maxFilter(src, w, h, r) {
+    const tmp = new Float32Array(w * h), dst = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) {
+      const o = y * w;
+      for (let x = 0; x < w; x++) {
+        let m = 0; const a = Math.max(0, x - r), b = Math.min(w - 1, x + r);
+        for (let i = a; i <= b; i++) if (src[o + i] > m) m = src[o + i];
+        tmp[o + x] = m;
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      for (let y = 0; y < h; y++) {
+        let m = 0; const a = Math.max(0, y - r), b = Math.min(h - 1, y + r);
+        for (let i = a; i <= b; i++) if (tmp[i * w + x] > m) m = tmp[i * w + x];
+        dst[y * w + x] = m;
+      }
+    }
+    return dst;
+  }
+
+  function boxBlur(src, w, h, r) {
+    const tmp = new Float32Array(w * h), dst = new Float32Array(w * h), k = 1 / (2 * r + 1);
+    for (let y = 0; y < h; y++) {
+      const o = y * w; let acc = 0;
+      for (let i = -r; i <= r; i++) acc += src[o + Math.min(w - 1, Math.max(0, i))];
+      for (let x = 0; x < w; x++) {
+        tmp[o + x] = acc * k;
+        acc += src[o + Math.min(w - 1, x + r + 1)] - src[o + Math.max(0, x - r)];
+      }
+    }
+    for (let x = 0; x < w; x++) {
+      let acc = 0;
+      for (let i = -r; i <= r; i++) acc += tmp[Math.min(h - 1, Math.max(0, i)) * w + x];
+      for (let y = 0; y < h; y++) {
+        dst[y * w + x] = acc * k;
+        acc += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
+      }
+    }
+    return dst;
+  }
+
+  // ---------- stereo synthesis ----------
+  // forward warp with a z-buffer (nearer wins), then fill disocclusions from the farther neighbour
+  // 0 = depth as estimated, 1 = pure black/white: far half goes black, near half goes white
+  function contrastDepth(depth, t) {
+    if (t <= 0) return depth;
+    const g = 1 / Math.max(0.002, 1 - t), o = new Float32Array(depth.length);
+    for (let i = 0; i < depth.length; i++) {
+      const v = (depth[i] - 0.5) * g + 0.5;
+      o[i] = v < 0 ? 0 : v > 1 ? 1 : v;
+    }
     return o;
   }
 
-  // ---------- WebGL ----------
-  const cv = $('gl'), gl = cv.getContext('webgl', { antialias: false });
-  const vs = 'attribute vec2 p; varying vec2 uv; void main(){ uv = p * 0.5 + 0.5; uv.y = 1.0 - uv.y; gl_Position = vec4(p, 0.0, 1.0); }';
-  const fs = `precision highp float;
-    varying vec2 uv; uniform sampler2D img, dep; uniform vec2 shift, scale; uniform float pivot;
-    void main(){
-      vec2 q = (uv - 0.5) / scale + 0.5;           // fit the photo inside the screen
-      if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
-      // find the source point that lands here: near things move with the tilt, far things against it
-      vec2 p = q;
-      for (int i = 0; i < 10; i++) { float d = texture2D(dep, p).r; p = q - shift * (d - pivot); }
-      p = clamp(p, 0.0, 1.0);
-      gl_FragColor = vec4(texture2D(img, p).rgb, 1.0);
-    }`;
-  function sh(t, src) { const s = gl.createShader(t); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
-  const prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(prog); gl.useProgram(prog);
-  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-  const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-  const U = n => gl.getUniformLocation(prog, n);
-  function tex(unit) { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; }
-  const imgTex = tex(0), depTex = tex(1);
-  gl.uniform1i(U('img'), 0); gl.uniform1i(U('dep'), 1);
-  let imgAspect = 1, loaded = false;
-
-  // ---------- input ----------
-  let tx = 0, ty = 0, sx = 0, sy = 0, base = null, lastOri = null;
-  function onOri(e) {
-    if (e.beta == null) return;
-    lastOri = { b: e.beta, g: e.gamma };
-    if (!base) base = { ...lastOri };
-    const k = parseFloat($('sens').value);
-    tx = Math.max(-1, Math.min(1, (lastOri.g - base.g) / 25 * k));
-    ty = Math.max(-1, Math.min(1, (lastOri.b - base.b) / 25 * k));
+  function drawDepth(depth, w, h) {
+    const dc = $('depthCanvas'); dc.width = w; dc.height = h;
+    const dd = new ImageData(w, h);
+    for (let i = 0; i < w * h; i++) { const v = depth[i] * 255; dd.data[i * 4] = dd.data[i * 4 + 1] = dd.data[i * 4 + 2] = v; dd.data[i * 4 + 3] = 255; }
+    dc.getContext('2d').putImageData(dd, 0, 0);
   }
-  $('tiltBtn').onclick = async () => {
+
+  function warp(rgba, depth, w, h, sign, maxShift, focus, frame) {
+    const out = new Uint8ClampedArray(w * h * 4), z = new Float32Array(w), mask = new Uint8Array(w * h), zmap = new Float32Array(w * h);
+    const half = sign * maxShift / 2;
+    for (let y = 0; y < h; y++) {
+      z.fill(-1);
+      const row = y * w;
+      let pTx = -10, pDv = -1;
+      for (let x = 0; x < w; x++) {
+        const dv = depth[row + x];
+        const tx = Math.round(x + (dv - focus) * half);
+        const s = (row + x) * 4;
+        // same surface stretched apart: cover the gap so farther pixels can't show through as streaks
+        const from = (tx - pTx > 1 && tx - pTx <= 6 && Math.abs(dv - pDv) < 0.04) ? pTx + 1 : tx;
+        pTx = tx; pDv = dv;
+        for (let k = Math.max(0, from); k <= tx && k < w; k++) {
+          if (dv <= z[k]) continue;
+          z[k] = dv; zmap[row + k] = dv;
+          const t = (row + k) * 4;
+          out[t] = rgba[s]; out[t + 1] = rgba[s + 1]; out[t + 2] = rgba[s + 2]; out[t + 3] = 255;
+        }
+      }
+      // fill holes: tiny cracks are interpolated; real gaps copy background texture mirrored from the far side
+      let x = 0;
+      while (x < w) {
+        if (z[x] >= 0) { x++; continue; }
+        let e = x; while (e < w && z[e] < 0) e++;
+        const L = x - 1, R = e, n = e - x;
+        if (L >= 0 && R < w && n <= 2) {
+          const a = (row + L) * 4, b = (row + R) * 4;
+          for (let i = x; i < e; i++) {
+            const t = (row + i) * 4, f = (i - L) / (n + 1);
+            out[t] = out[a] + (out[b] - out[a]) * f; out[t + 1] = out[a + 1] + (out[b + 1] - out[a + 1]) * f;
+            out[t + 2] = out[a + 2] + (out[b + 2] - out[a + 2]) * f; out[t + 3] = 255; mask[row + i] = 1; zmap[row + i] = Math.min(z[L], z[R]);
+          }
+          x = e; continue;
+        }
+        let side; // which neighbour is background
+        if (L < 0 && R >= w) side = 0; else if (L < 0) side = 1; else if (R >= w) side = -1; else side = z[L] <= z[R] ? -1 : 1;
+        for (let i = x; i < e; i++) {
+          const t = (row + i) * 4; out[t + 3] = 255; mask[row + i] = 1;
+          if (!side) continue;
+          let k = side < 0 ? i - L : R - i;             // distance into the hole from the background edge
+          let src = side < 0 ? L - (k - 1) : R + (k - 1); // mirror back into the background
+          src = Math.max(0, Math.min(w - 1, src));
+          if (z[src] < 0 || (side < 0 ? z[src] > z[L] + 0.05 : z[src] > z[R] + 0.05)) src = side < 0 ? L : R;
+          const s2 = (row + src) * 4; zmap[row + i] = z[src];
+          out[t] = out[s2]; out[t + 1] = out[s2 + 1]; out[t + 2] = out[s2 + 2];
+        }
+        x = e;
+      }
+    }
+    // soften filled areas vertically so rows don't streak
+    const R2 = Math.max(2, Math.round(w / 400)), tmp = new Uint8ClampedArray(out);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (!mask[y * w + x]) continue;
+      let r = 0, g = 0, b = 0, c = 0;
+      for (let dy = -R2; dy <= R2; dy++) {
+        const yy = y + dy; if (yy < 0 || yy >= h) continue;
+        const q = (yy * w + x) * 4; r += tmp[q]; g += tmp[q + 1]; b += tmp[q + 2]; c++;
+      }
+      const t = (y * w + x) * 4; out[t] = r / c; out[t + 1] = g / c; out[t + 2] = b / c;
+    }
+    // pop-out frame: a border that sits at the break-out depth; anything nearer is drawn over it
+    if (frame) {
+      const dx = Math.round((frame.thr - focus) * half), band = Math.max(1, Math.round(frame.size * Math.min(w, h)));
+      const [cr, cg, cb] = frame.color;
+      for (let y = 0; y < h; y++) {
+        const edgeY = y < band || y >= h - band;
+        for (let x = 0; x < w; x++) {
+          const xf = x - dx;
+          if (!(edgeY || xf < band || xf >= w - band)) continue;
+          const i = y * w + x;
+          if (zmap[i] > frame.thr) continue;
+          const t = i * 4; out[t] = cr; out[t + 1] = cg; out[t + 2] = cb;
+        }
+      }
+    }
+    return out;
+  }
+
+  function compose(L, R, w, h, mode, ctx) {
+    const c = ctx.canvas;
+    if (mode === 'anaglyph') {
+      c.width = w; c.height = h;
+      const o = new ImageData(w, h), d = o.data;
+      for (let i = 0; i < w * h * 4; i += 4) {
+        d[i] = 0.299 * L[i] + 0.587 * L[i + 1] + 0.114 * L[i + 2];
+        d[i + 1] = R[i + 1]; d[i + 2] = R[i + 2]; d[i + 3] = 255;
+      }
+      ctx.putImageData(o, 0, 0);
+      return;
+    }
+    const left = mode === 'cross' ? R : L, right = mode === 'cross' ? L : R;
+    if (mode === 'overunder') {
+      c.width = w; c.height = h * 2;
+      ctx.putImageData(new ImageData(left, w, h), 0, 0);
+      ctx.putImageData(new ImageData(right, w, h), 0, h);
+    } else {
+      c.width = w * 2; c.height = h;
+      ctx.putImageData(new ImageData(left, w, h), 0, 0);
+      ctx.putImageData(new ImageData(right, w, h), w, 0);
+    }
+  }
+
+  function params(w) {
+    // slider: high = pop-out, so the depth that sits at the screen is 1 - value
+    return { maxShift: parseFloat($('str').value) / 100 * w, focus: 1 - parseFloat($('foc').value), contrast: parseFloat($('crv').value) / 100,
+      frame: $('frm').value === 'off' ? null : { size: parseFloat($('fsz').value) / 100, thr: parseFloat($('fthr').value) / 100, color: $('frm').value === 'white' ? [245, 245, 245] : [0, 0, 0] } };
+  }
+
+  // ---------- image flow ----------
+  const outCtx = $('outCanvas').getContext('2d');
+  function renderImage() {
+    if (!img || !img.depth) return;
+    const { w, h, rgba } = img, p = params(w), depth = contrastDepth(img.depth, p.contrast);
+    drawDepth(depth, w, h);
+    const L = warp(rgba, depth, w, h, +1, p.maxShift, p.focus, p.frame);
+    const R = warp(rgba, depth, w, h, -1, p.maxShift, p.focus, p.frame);
+    compose(L, R, w, h, fmt, outCtx);
+  }
+
+  async function processImage(file) {
+    if (!session) { pendingImage = file; status('Image queued — still loading the depth model…'); return; }
+    status('Reading image…');
+    let bmp;
+    try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+    catch (e) { status('This browser can\'t read that image format. Try a JPG or PNG.'); return; }
+    const MAXW = 2400;
+    const scale = Math.min(1, MAXW / bmp.width);
+    const w = Math.max(2, Math.round(bmp.width * scale)), h = Math.max(2, Math.round(bmp.height * scale));
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const cx = c.getContext('2d', { willReadFrequently: true }); cx.drawImage(bmp, 0, 0, w, h);
+    const rgba = cx.getImageData(0, 0, w, h).data;
+    img = { w, h, rgba, canvas: c, depth: null, name: file.name.replace(/\.[^.]+$/, '') };
+    await depthForImage();
+  }
+
+  async function depthForImage() {
+    if (!img) return;
+    status('Estimating depth…'); bar(0.3);
+    await sleep(30);
+    const t0 = performance.now();
+    const raw = await estimateDepth(img.canvas);
+    const [lo, hi] = percentiles(raw);
+    img.depth = depthToSize(raw, img.w, img.h, lo, hi);
+    depthDirty = true;
+    renderImage();
+    $('imgOut').classList.remove('hide');
+    bar(0);
+    status('Done in ' + ((performance.now() - t0) / 1000).toFixed(1) + ' s. Sliders update the result live.');
+  }
+
+  $('saveImg').onclick = () => {
+    if (!img) return;
+    $('outCanvas').toBlob(b => save(img.name + '-' + fmt + '.jpg', b, $('saveNote')), 'image/jpeg', 0.95);
+  };
+  $('saveDepth').onclick = () => {
+    if (!img) return;
+    $('depthCanvas').toBlob(b => save(img.name + '-depth.png', b, $('saveNote')), 'image/png');
+  };
+
+  // ---------- video flow ----------
+  function setupVideo(file) {
+    videoFile = file;
+    $('imgOut').classList.add('hide');
+    $('vidOut').classList.remove('hide');
+    $('vidOpts').classList.remove('hide');
+    $('vidResult').classList.add('hide'); $('saveVid').classList.add('hide');
+    $('vidSaveNote').textContent = '';
+    $('startVid').disabled = !session; $('previewVid').disabled = !session;
+    $('vidInfo').textContent = file.name;
+    if (!('VideoEncoder' in window)) {
+      $('vidInfo').textContent = 'This browser can\'t encode video (needs a recent Chrome, Edge or Safari).';
+      $('startVid').disabled = true;
+    }
+    status(session ? 'Video loaded. Pick settings and press Convert. Try "First 2 s" to check the look before a full run.' : 'Video loaded — waiting for the depth model…');
+  }
+
+  function loadVideoEl(file) {
+    return new Promise((res, rej) => {
+      setTimeout(() => rej(new Error('The browser\'s video player didn\'t load the video.')), 15000);
+      const v = document.createElement('video');
+      v.muted = true; v.playsInline = true; v.preload = 'auto';
+      v.setAttribute('playsinline', '');
+      // keep it in the page (nearly invisible): some browsers stop decoding detached or hidden videos
+      v.style.cssText = 'position:fixed;left:0;bottom:0;width:4px;height:4px;opacity:0.01;pointer-events:none;z-index:-1';
+      document.body.appendChild(v);
+      v.src = URL.createObjectURL(file);
+      v.onloadeddata = () => res(v);
+      v.onerror = () => rej(new Error('Couldn\'t read that video in this browser.'));
+    });
+  }
+
+  function seek(v, t, timeoutMs = 4000) {
+    return new Promise(res => {
+      let finished = false;
+      const fin = (ok) => { if (!finished) { finished = true; res(ok); } };
+      setTimeout(() => { v.removeEventListener('seeked', done); fin(false); }, timeoutMs);
+      const done = () => {
+        v.removeEventListener('seeked', done);
+        if (v.requestVideoFrameCallback) {
+          let fired = false;
+          v.requestVideoFrameCallback(() => { fired = true; fin(true); });
+          setTimeout(() => { if (!fired) fin(true); }, 150);
+        } else fin(true);
+      };
+      v.addEventListener('seeked', done);
+      v.currentTime = t;
+    });
+  }
+
+  // ---------- frame sources ----------
+  // Preferred: read the file ourselves and run every frame through the browser's video decoder in order.
+  // No seeking, so nothing to stall. Falls back to the video player for files this can't read (e.g. WebM).
+  const MP4BOX_URL = 'https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js';
+  async function openDecoderSource(file) {
+    if (!('VideoDecoder' in window)) throw new Error('no VideoDecoder');
+    if (!window.MP4Box) await loadScript(MP4BOX_URL);
+    const buf = await file.arrayBuffer();
+    const mp4 = MP4Box.createFile();
+    let info = null, failed = null;
+    const samples = [];
+    mp4.onReady = (i) => { info = i; };
+    mp4.onError = (e) => { failed = e; };
+    mp4.onSamples = (id, user, list) => { for (const x of list) samples.push(x); };
+    buf.fileStart = 0;
+    mp4.appendBuffer(buf);
+    mp4.flush();
+    if (failed || !info) throw new Error('not an MP4/MOV file');
+    const track = info.videoTracks[0];
+    if (!track) throw new Error('no video track');
+    const trak = mp4.getTrackById(track.id);
+    let description;
+    for (const entry of trak.mdia.minf.stbl.stsd.entries) {
+      const box = entry.avcC || entry.hvcC || entry.vpcC || entry.av1C;
+      if (box) {
+        const ds = new DataStream(undefined, 0, DataStream.BIG_ENDIAN);
+        box.write(ds);
+        description = new Uint8Array(ds.buffer, 8);
+        break;
+      }
+    }
+    mp4.setExtractionOptions(track.id, null, { nbSamples: 1e9 });
+    mp4.start();
+    mp4.flush();
+    if (!samples.length) throw new Error('no video samples');
+    const cw = track.video.width, ch = track.video.height;
+    const config = { codec: track.codec, codedWidth: cw, codedHeight: ch };
+    if (description) config.description = description;
+    const sup = await VideoDecoder.isConfigSupported(config);
+    if (!sup.supported) throw new Error('decoder can\'t play ' + track.codec);
+
+    // rotation stored in the file (phones record sideways and mark it)
+    const m = track.matrix || [65536, 0, 0, 0, 65536, 0, 0, 0, 0];
+    let rot = Math.round(Math.atan2(m[1], m[0]) * 180 / Math.PI);
+    rot = ((Math.round(rot / 90) * 90) % 360 + 360) % 360;
+    const dw = rot % 180 ? ch : cw, dh = rot % 180 ? cw : ch;
+
+    const us = (x, ts) => Math.round(x * 1e6 / ts);
+    const base = Math.min(...samples.slice(0, 64).map(x => us(x.cts, x.timescale)));
+    const duration = track.duration && track.timescale ? track.duration / track.timescale
+      : (us(samples[samples.length - 1].cts + samples[samples.length - 1].duration, samples[0].timescale) - base) / 1e6;
+
+    const queue = [];
+    let err = null, si = 0, flushed = false, closed = false;
+    const dec = new VideoDecoder({ output: (f) => { if (closed) f.close(); else queue.push(f); }, error: (e) => { err = e; } });
+    dec.configure(config);
+
+    async function pumpPast(tUs) {
+      for (;;) {
+        if (err) throw err;
+        const last = queue[queue.length - 1];
+        if (last && last.timestamp > tUs) return;
+        if (si >= samples.length) {
+          if (!flushed) { flushed = true; await dec.flush(); continue; }
+          return;
+        }
+        let fed = 0;
+        while (si < samples.length && dec.decodeQueueSize < 8 && fed < 8) {
+          const x = samples[si++];
+          dec.decode(new EncodedVideoChunk({ type: x.is_sync ? 'key' : 'delta', timestamp: us(x.cts, x.timescale),
+            duration: us(x.duration, x.timescale), data: x.data }));
+          fed++;
+        }
+        await sleep(fed ? 0 : 4);
+      }
+    }
+
+    return {
+      kind: 'decoder', duration, width: dw, height: dh,
+      async draw(ctx, w, h, t) {
+        const tUs = base + t * 1e6;
+        await pumpPast(tUs);
+        // keep only the latest frame at or before t
+        while (queue.length > 1 && queue[1].timestamp <= tUs) queue.shift().close();
+        const f = queue[0];
+        if (!f) return false;
+        ctx.save();
+        if (rot === 90) { ctx.translate(w, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(f, 0, 0, h, w); }
+        else if (rot === 180) { ctx.translate(w, h); ctx.rotate(Math.PI); ctx.drawImage(f, 0, 0, w, h); }
+        else if (rot === 270) { ctx.translate(0, h); ctx.rotate(-Math.PI / 2); ctx.drawImage(f, 0, 0, h, w); }
+        else ctx.drawImage(f, 0, 0, w, h);
+        ctx.restore();
+        return true;
+      },
+      close() { closed = true; queue.forEach(f => f.close()); queue.length = 0; try { dec.close(); } catch (e) {} },
+    };
+  }
+
+  async function openPlayerSource(file, onNote) {
+    let v = await loadVideoEl(file);
+    let prevSig = -1, sameRun = 0, staticScene = false;
+    const signature = (d) => { let h = 0; for (let k = 0; k < d.length; k += 397) h = (h * 31 + d[k]) | 0; return h; };
+    const reload = async () => { try { v.remove(); URL.revokeObjectURL(v.src); } catch (e) {} v = await loadVideoEl(file); };
+    return {
+      kind: 'player', duration: v.duration, width: v.videoWidth, height: v.videoHeight,
+      async draw(ctx, w, h, t) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const ok = await seek(v, Math.min(v.duration - 0.001, t), 8000);
+          if (ok) {
+            ctx.drawImage(v, 0, 0, w, h);
+            const sig = signature(ctx.getImageData(0, 0, w, h).data);
+            if (sig !== prevSig) { sameRun = 0; staticScene = false; prevSig = sig; return true; }
+            sameRun++;
+            if (staticScene || sameRun < 10 || attempt > 0) { if (attempt > 0) staticScene = true; return true; }
+          }
+          onNote('the browser\'s video player froze, restarting it…');
+          try { await reload(); } catch (e) { return false; }
+        }
+        return false;
+      },
+      close() { try { v.remove(); URL.revokeObjectURL(v.src); } catch (e) {} },
+    };
+  }
+
+  async function pickVideoCodec(W, H, fps) {
+    const opts = [
+      { codec: 'avc1.640033', mux: 'avc' },
+      { codec: 'avc1.4d0033', mux: 'avc' },
+      { codec: 'vp09.00.51.08', mux: 'vp9' },
+      { codec: 'av01.0.12M.08', mux: 'av1' },
+    ];
+    for (const o of opts) {
+      const cfg = { codec: o.codec, width: W, height: H, bitrate: Math.round(W * H * fps * 0.12), framerate: fps };
+      try { const s = await VideoEncoder.isConfigSupported(cfg); if (s.supported) return { cfg, mux: o.mux }; } catch (e) {}
+    }
+    return null;
+  }
+
+  async function prepareAudio(file, dur) {
+    if (!('AudioEncoder' in window)) return null;
+    try {
+      const buf = await file.arrayBuffer();
+      const ac = new (window.AudioContext || window.webkitAudioContext)();
+      const ab = await ac.decodeAudioData(buf);
+      ac.close && ac.close();
+      const ch = Math.min(2, ab.numberOfChannels), sr = ab.sampleRate;
+      for (const o of [{ codec: 'mp4a.40.2', mux: 'aac' }, { codec: 'opus', mux: 'opus' }]) {
+        const cfg = { codec: o.codec, sampleRate: sr, numberOfChannels: ch, bitrate: 160000 };
+        try { const s = await AudioEncoder.isConfigSupported(cfg); if (s.supported) return { ab, cfg, mux: o.mux, ch, sr, dur }; } catch (e) {}
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  async function encodeAudio(a, muxer) {
+    const enc = new AudioEncoder({ output: (chunk, meta) => muxer.addAudioChunk(chunk, meta), error: e => console.warn(e) });
+    enc.configure(a.cfg);
+    const total = Math.min(a.ab.length, Math.floor(a.dur * a.sr)), CH = 4096;
+    const chans = []; for (let c = 0; c < a.ch; c++) chans.push(a.ab.getChannelData(c));
+    for (let off = 0; off < total; off += CH) {
+      const n = Math.min(CH, total - off), data = new Float32Array(n * a.ch);
+      for (let c = 0; c < a.ch; c++) data.set(chans[c].subarray(off, off + n), c * n);
+      enc.encode(new AudioData({ format: 'f32-planar', sampleRate: a.sr, numberOfFrames: n, numberOfChannels: a.ch, timestamp: Math.round(off / a.sr * 1e6), data }));
+    }
+    await enc.flush(); enc.close();
+  }
+
+  let converting = false;
+  async function convertVideo() {
+    converting = true;
+    try { await convertVideoInner(); } finally { converting = false; }
+  }
+  async function convertVideoInner() {
+    cancel = false;
+    $('startVid').disabled = true; $('cancelVid').classList.remove('hide');
+    $('vidResult').classList.add('hide'); $('saveVid').classList.add('hide'); $('vidSaveNote').textContent = '';
+    let src;
+    status('Opening video…');
+    try { src = await openDecoderSource(videoFile); }
+    catch (e) {
+      console.warn('decoder path unavailable, using video player:', e);
+      try { src = await openPlayerSource(videoFile, (m) => status(m)); }
+      catch (e2) { status(e2.message || 'Couldn\'t read that video.'); $('startVid').disabled = false; $('cancelVid').classList.add('hide'); return; }
+    }
+    const fps = parseInt($('fps').value, 10);
+    const rangeSel = $('range').value;
+    const dur = rangeSel === 'all' ? src.duration : Math.min(src.duration, parseFloat(rangeSel));
+    const frames = Math.max(1, Math.floor(dur * fps));
+    const maxW = parseInt($('vw').value, 10);
+    const sc = Math.min(1, maxW / src.width);
+    const w = Math.max(2, Math.round(src.width * sc / 2) * 2), h = Math.max(2, Math.round(src.height * sc / 2) * 2);
+    const mode = fmt;
+    const W = mode === 'parallel' || mode === 'cross' ? w * 2 : w;
+    const H = mode === 'overunder' ? h * 2 : h;
+    const p = params(w);
+
+    status('Setting up encoder…');
+    const vc = await pickVideoCodec(W, H, fps);
+    if (!vc) { status('No supported video encoder for ' + W + '×' + H + '. Try a smaller width.'); $('startVid').disabled = false; $('cancelVid').classList.add('hide'); return; }
+    status('Reading audio…');
+    const audio = await prepareAudio(videoFile, dur);
+    const target = new Mp4Muxer.ArrayBufferTarget();
+    const muxCfg = { target, fastStart: 'in-memory', firstTimestampBehavior: 'offset', video: { codec: vc.mux, width: W, height: H, frameRate: fps } };
+    if (audio) muxCfg.audio = { codec: audio.mux, numberOfChannels: audio.ch, sampleRate: audio.sr };
+    const muxer = new Mp4Muxer.Muxer(muxCfg);
+    let encErr = null;
+    const venc = new VideoEncoder({ output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { encErr = e; } });
+    venc.configure(vc.cfg);
+
+    const fc = document.createElement('canvas'); fc.width = w; fc.height = h;
+    const fctx = fc.getContext('2d', { willReadFrequently: true });
+    const pv = $('vidPreview'); pv.classList.remove('hide');
+    const pctx = pv.getContext('2d');
+    let lo = null, hi = null;
+    const t0 = performance.now();
+    let done = 0, stuckNote = '', lastRaw = null;
+    const fast = $('speed').value === 'fast';
+    for (let i = 0; i < frames; i++) {
+      if (cancel || encErr) break;
+      const t = Math.min(dur - 0.001, (i + 0.5) / fps);
+      let got = false;
+      try { got = await src.draw(fctx, w, h, t); } catch (e) { console.warn(e); stuckNote = 'Video decoding failed at ' + t.toFixed(1) + ' s (' + (e.message || e) + ').'; break; }
+      if (!got) { stuckNote = 'The browser stopped giving frames at ' + t.toFixed(1) + ' s.'; break; }
+      const rgba = fctx.getImageData(0, 0, w, h).data;
+      // fast mode: new depth on every 2nd frame, the frame between reuses it
+      const fresh = !fast || i % 2 === 0 || !lastRaw;
+      const raw = fresh ? await estimateDepth(fc) : lastRaw;
+      lastRaw = raw;
+      if (fresh) {
+        const [l, hh] = percentiles(raw);
+        if (lo === null) { lo = l; hi = hh; } else { lo = lo * 0.8 + l * 0.2; hi = hi * 0.8 + hh * 0.2; }
+      }
+      const depth = contrastDepth(depthToSize(raw, w, h, lo, hi), p.contrast);
+      const L = warp(rgba, depth, w, h, +1, p.maxShift, p.focus, p.frame);
+      const R = warp(rgba, depth, w, h, -1, p.maxShift, p.focus, p.frame);
+      compose(L, R, w, h, mode, pctx);
+      const frame = new VideoFrame(pv, { timestamp: Math.round(i * 1e6 / fps), duration: Math.round(1e6 / fps) });
+      venc.encode(frame, { keyFrame: i % (fps * 2) === 0 });
+      frame.close();
+      while (venc.encodeQueueSize > 4) await sleep(5);
+      done = i + 1;
+      const el = (performance.now() - t0) / 1000, per = el / (i + 1), left = per * (frames - i - 1);
+      bar((i + 1) / frames);
+      status('Frame ' + (i + 1) + ' / ' + frames + ' · ' + per.toFixed(1) + ' s per frame · about ' + fmtTime(left) + ' left');
+      await sleep(0);
+    }
+    $('cancelVid').classList.add('hide');
+    const partial = done < frames;
+    if (encErr || done === 0) {
+      try { venc.close(); } catch (e) {}
+      status(encErr ? 'Encoder error: ' + encErr.message : stuckNote || 'Cancelled.'); bar(0);
+      $('startVid').disabled = false; src.close(); pv.classList.add('hide'); return;
+    }
+    status('Finishing video…');
+    await venc.flush(); venc.close();
+    if (audio) { try { status('Adding audio…'); audio.dur = done / fps; await encodeAudio(audio, muxer); } catch (e) { console.warn(e); } }
+    muxer.finalize();
+    const blob = new Blob([target.buffer], { type: 'video/mp4' });
+    src.close();
+    if (lastVideo) URL.revokeObjectURL(lastVideo.url);
+    lastVideo = { blob, url: URL.createObjectURL(blob), name: videoFile.name.replace(/\.[^.]+$/, '') + '-' + mode + '.mp4' };
+    pv.classList.add('hide');
+    const vr = $('vidResult'); vr.src = lastVideo.url; vr.classList.remove('hide');
+    $('saveVid').classList.remove('hide');
+    $('startVid').disabled = false; bar(0);
+    status((partial ? (stuckNote || 'Stopped early.') + ' Kept the ' + done + ' of ' + frames + ' frames that finished' : 'Done: ' + frames + ' frames') + ' in ' + fmtTime((performance.now() - t0) / 1000) + (audio ? ', with audio.' : ', no audio.'));
+  }
+
+  function fmtTime(s) {
+    s = Math.round(s); if (s < 60) return s + ' s';
+    const m = Math.floor(s / 60); if (m < 60) return m + ' min ' + (s % 60) + ' s';
+    return Math.floor(m / 60) + ' h ' + (m % 60) + ' min';
+  }
+
+  $('startVid').onclick = convertVideo;
+  $('cancelVid').onclick = () => { cancel = true; };
+  $('saveVid').onclick = () => { if (lastVideo) save(lastVideo.name, lastVideo.blob, $('vidSaveNote')); };
+
+  // ---------- video frame preview ----------
+  async function previewVideoFrame() {
+    if (!session || !videoFile) return;
+    $('previewVid').disabled = true;
+    status('Grabbing a frame…');
+    let src;
+    try { src = await openDecoderSource(videoFile); }
+    catch (e) { try { src = await openPlayerSource(videoFile, () => {}); } catch (e2) { status(e2.message); $('previewVid').disabled = false; return; } }
+    try {
+      const maxW = parseInt($('vw').value, 10), sc = Math.min(1, maxW / src.width);
+      const w = Math.max(2, Math.round(src.width * sc / 2) * 2), h = Math.max(2, Math.round(src.height * sc / 2) * 2);
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      const cx = c.getContext('2d', { willReadFrequently: true });
+      const ok = await src.draw(cx, w, h, Math.min(1, src.duration / 2));
+      if (!ok) throw new Error('Couldn\'t read a frame from this video.');
+      img = { w, h, rgba: cx.getImageData(0, 0, w, h).data, canvas: c, depth: null, name: videoFile.name.replace(/\.[^.]+$/, '') + '-frame' };
+      $('imgOut').classList.remove('hide');
+      await depthForImage();
+      status('Preview frame ready. Sliders update it live; the video will use the same settings.');
+    } catch (e) { status(e.message || String(e)); }
+    finally { src.close(); $('previewVid').disabled = false; }
+  }
+  $('previewVid').onclick = previewVideoFrame;
+
+  // ---------- settings for Claude ----------
+  function settingsText() {
+    const fmtName = { parallel: 'parallel', cross: 'cross-eye', anaglyph: 'red/cyan', overunder: 'over-under' }[fmt];
+    const opt = (id) => { const e = $(id); return e.options[e.selectedIndex].text; };
+    return 'Stereo Maker settings: output ' + fmtName + ', depth strength ' + parseFloat($('str').value).toFixed(1) +
+      ', screen plane ' + Math.round(parseFloat($('foc').value) * 100) + ', depth contrast ' + $('crv').value + '%' +
+      ', depth detail ' + opt('q').replace(/ \(.*\)/, '') + ', frame rate ' + $('fps').value + ' fps, width per eye ' + $('vw').value +
+      ' px, speed ' + ($('speed').value === 'fast' ? 'fast' : 'normal') + ', range ' + opt('range') +
+      ($('frm').value === 'off' ? ', pop-out frame off' : ', pop-out frame ' + $('frm').value + ' size ' + $('fsz').value + '% break-out ' + $('fthr').value) + '.';
+  }
+  $('copySettings').onclick = async () => {
+    const t = settingsText(), ta = $('settingsText');
+    ta.value = t; ta.classList.remove('hide');
+    try { await navigator.clipboard.writeText(t); $('copyNote').textContent = 'Copied. Paste it in the chat along with your video.'; }
+    catch (e) { ta.focus(); ta.select(); $('copyNote').textContent = 'Couldn\'t copy automatically. Select the text below and copy it.'; }
+  };
+
+
+  // ---------- live 3D with tilt ----------
+  const lc = $('liveCanvas');
+  let gl = null, prog = null, texImg = null, texDep = null, liveOn = false;
+  const LVS = 'attribute vec2 p; varying vec2 uv; void main(){ uv = p * 0.5 + 0.5; uv.y = 1.0 - uv.y; gl_Position = vec4(p, 0.0, 1.0); }';
+  const LFS = `precision highp float;
+    varying vec2 uv;
+    uniform sampler2D img, dep;
+    uniform vec2 shift, scale, band;
+    uniform float focus, thr, gray, frameOn;
+    uniform vec3 fcol;
+    void main(){
+      vec2 q = (uv - 0.5) / scale + 0.5;
+      if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+      // find the source pixel that lands here (near things shift more than far ones)
+      vec2 p = q;
+      for (int i = 0; i < 12; i++) { float d = texture2D(dep, p).r; p = q - shift * (d - focus); }
+      p = clamp(p, 0.0, 1.0);
+      float d = texture2D(dep, p).r;
+      vec3 c = texture2D(img, p).rgb;
+      if (frameOn > 0.5) {
+        vec2 b = q - shift * (thr - focus);   // the frame sits at the break-out depth
+        bool inBand = b.x < band.x || b.x > 1.0 - band.x || b.y < band.y || b.y > 1.0 - band.y;
+        if (inBand && d <= thr) c = fcol;
+      }
+      if (gray > 0.5) c = vec3(dot(c, vec3(0.299, 0.587, 0.114)));
+      gl_FragColor = vec4(c, 1.0);
+    }`;
+
+  function initGL() {
+    if (gl) return true;
+    gl = lc.getContext('webgl', { antialias: false });
+    if (!gl) return false;
+    const sh = (t, src) => { const x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x);
+      if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
+    prog = gl.createProgram(); gl.attachShader(prog, sh(gl.VERTEX_SHADER, LVS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, LFS));
+    gl.linkProgram(prog); gl.useProgram(prog);
+    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    const mk = (unit) => { const t = gl.createTexture(); gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); return t; };
+    texImg = mk(0); texDep = mk(1);
+    gl.uniform1i(gl.getUniformLocation(prog, 'img'), 0); gl.uniform1i(gl.getUniformLocation(prog, 'dep'), 1);
+    return true;
+  }
+  const U = (n) => gl.getUniformLocation(prog, n);
+
+  function uploadLive() {
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, texImg);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img.canvas);
+    depthDirty = true;
+  }
+  function uploadDepth() {
+    const p = params(img.w), d = contrastDepth(img.depth, p.contrast), u8 = new Uint8Array(d.length);
+    for (let i = 0; i < d.length; i++) u8[i] = d[i] * 255;
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, texDep);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, img.w, img.h, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, u8);
+    depthDirty = false;
+  }
+
+  // phone orientation -> how far the view has turned from the starting pose, in screen terms
+  let baseR = null, curR = null, look = [0, 0], smooth = [0, 0], reversed = false;
+  function rotMatrix(a, b, g) {
+    const d = Math.PI / 180, ca = Math.cos(a * d), sa = Math.sin(a * d), cb = Math.cos(b * d), sb = Math.sin(b * d), cg = Math.cos(g * d), sg = Math.sin(g * d);
+    // R = Rz(alpha) * Rx(beta) * Ry(gamma): device frame -> earth frame
+    return [
+      ca * cg - sa * sb * sg, -sa * cb, ca * sg + sa * sb * cg,
+      sa * cg + ca * sb * sg, ca * cb, sa * sg - ca * sb * cg,
+      -cb * sg, sb, cb * cg,
+    ];
+  }
+  function onOrient(e) {
+    if (e.beta == null) return;
+    curR = rotMatrix(e.alpha || 0, e.beta, e.gamma);
+    if (!baseR) baseR = curR;
+    // where the back of the phone now points, seen from the starting pose: v = baseR^T * R * (0,0,-1)
+    const w = [-curR[2], -curR[5], -curR[8]];
+    const v = [baseR[0] * w[0] + baseR[3] * w[1] + baseR[6] * w[2],
+               baseR[1] * w[0] + baseR[4] * w[1] + baseR[7] * w[2],
+               baseR[2] * w[0] + baseR[5] * w[1] + baseR[8] * w[2]];
+    const yaw = Math.atan2(v[0], -v[2]) * 180 / Math.PI, pitch = Math.atan2(v[1], Math.hypot(v[0], v[2])) * 180 / Math.PI;
+    // account for the phone being held sideways (e.g. in a headset)
+    const ang = ((screen.orientation && screen.orientation.angle) || window.orientation || 0) * Math.PI / 180;
+    const sx = yaw * Math.cos(ang) + pitch * Math.sin(ang), sy = -yaw * Math.sin(ang) + pitch * Math.cos(ang);
+    const k = parseFloat($('sens').value) / 25;
+    look = [Math.max(-1.5, Math.min(1.5, sx * k)), Math.max(-1.5, Math.min(1.5, -sy * k))];
+  }
+  $('tiltOn').onclick = async () => {
     try {
       if (typeof DeviceOrientationEvent !== 'undefined' && DeviceOrientationEvent.requestPermission) {
         const r = await DeviceOrientationEvent.requestPermission();
-        if (r !== 'granted') { $('status').textContent = 'Motion access was declined. In Safari, allow Motion & Orientation for this site.'; return; }
+        if (r !== 'granted') { $('liveNote').textContent = 'Motion access was declined. In Safari settings for this site, allow Motion & Orientation Access.'; return; }
       }
-      base = null; window.addEventListener('deviceorientation', onOri);
-      $('tiltBtn').classList.add('hide'); $('status').textContent = 'Tilt the phone to look around. Tap the photo to hide the controls.';
-    } catch (e) { $('status').textContent = 'This browser won\'t share motion: ' + e.message; }
+      baseR = null; window.addEventListener('deviceorientation', onOrient);
+      $('tiltOn').classList.add('hide');
+      $('liveNote').textContent = 'Tilt or turn the phone to look around. Re-center sets your current pose as straight ahead.';
+    } catch (e) { $('liveNote').textContent = 'This browser won\'t share motion: ' + (e.message || e); }
   };
-  $('center').onclick = () => { base = lastOri ? { ...lastOri } : null; tx = ty = 0; };
-  // mouse fallback on computers
-  window.addEventListener('mousemove', e => { if (lastOri) return; tx = (e.clientX / innerWidth - 0.5) * 2; ty = (e.clientY / innerHeight - 0.5) * 2; });
-  cv.addEventListener('click', () => { if (loaded) $('bar').classList.toggle('hidden'); });
+  $('recenter').onclick = () => { baseR = curR; look = [0, 0]; };
+  $('reverse').onclick = () => { reversed = !reversed; $('reverse').textContent = reversed ? 'Reverse (on)' : 'Reverse'; };
+  window.addEventListener('mousemove', (e) => { if (!liveOn || curR) return; look = [(e.clientX / innerWidth - 0.5) * 2, (e.clientY / innerHeight - 0.5) * 2]; });
+  lc.addEventListener('click', () => $('livebar').classList.toggle('gone'));
+  $('liveClose').onclick = () => { liveOn = false; $('live').classList.add('hide'); document.body.style.overflow = ''; };
 
-  // ---------- open a photo ----------
-  async function open(file) {
-    if (!file) return;
-    if (!session) { pending = file; $('introStatus').textContent = 'Photo queued, still loading the depth model…'; return; }
-    $('introStatus').textContent = 'Reading photo…'; $('status').textContent = 'Working out depth…';
-    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
-    const max = Math.min(2048, gl.getParameter(gl.MAX_TEXTURE_SIZE)), sc = Math.min(1, max / Math.max(bmp.width, bmp.height));
-    const c = document.createElement('canvas'); c.width = Math.round(bmp.width * sc); c.height = Math.round(bmp.height * sc);
-    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-    $('introStatus').textContent = 'Working out depth…';
-    await new Promise(r => setTimeout(r, 30));
-    const d = await depthOf(c);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, imgTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
-    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, depTex);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, MODEL, MODEL, 0, gl.LUMINANCE, gl.UNSIGNED_BYTE, d);
-    imgAspect = c.width / c.height; loaded = true;
-    $('intro').classList.add('hide'); $('bar').classList.remove('hide');
-    $('status').textContent = lastOri ? 'Tilt to look around.' : 'Tap "Enable tilt", then tilt the phone. On a computer, move the mouse.';
-  }
-  $('file').onchange = e => open(e.target.files[0]);
-  $('file2').onchange = e => open(e.target.files[0]);
-
-  // ---------- draw ----------
-  function frame() {
-    const dpr = Math.min(2, devicePixelRatio || 1), W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
-    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; gl.viewport(0, 0, W, H); }
-    if (loaded) {
-      sx += (tx - sx) * 0.18; sy += (ty - sy) * 0.18;
-      const sa = W / H, s = imgAspect > sa ? [1, sa / imgAspect] : [imgAspect / sa, 1];
-      const amt = parseFloat($('amt').value) / 100;
-      gl.uniform2f(U('scale'), s[0] * 0.94, s[1] * 0.94);
-      gl.uniform2f(U('shift'), sx * amt, sy * amt);
-      gl.uniform1f(U('pivot'), parseFloat($('piv').value));
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  function drawEye(x, y, w, h, eyeSign, p) {
+    gl.viewport(x, y, w, h);
+    const box = w / h, ia = img.w / img.h, s = ia > box ? [1, box / ia] : [ia / box, 1];
+    gl.uniform2f(U('scale'), s[0], s[1]);
+    const la = parseFloat($('look').value) / 100 * (reversed ? 1 : -1);
+    const eye = eyeSign * parseFloat($('str').value) / 100 / 2;
+    gl.uniform2f(U('shift'), eye + smooth[0] * la, smooth[1] * la);
+    gl.uniform1f(U('focus'), p.focus);
+    gl.uniform1f(U('frameOn'), p.frame ? 1 : 0);
+    if (p.frame) {
+      const band = p.frame.size * Math.min(img.w, img.h);
+      gl.uniform2f(U('band'), band / img.w, band / img.h);
+      gl.uniform1f(U('thr'), p.frame.thr);
+      gl.uniform3f(U('fcol'), p.frame.color[0] / 255, p.frame.color[1] / 255, p.frame.color[2] / 255);
     }
-    requestAnimationFrame(frame);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
-  requestAnimationFrame(frame);
-  loadModel().catch(e => { $('introStatus').textContent = 'Couldn\'t load the depth model: ' + e.message; });
+
+  function liveFrame() {
+    if (!liveOn) return;
+    const dpr = Math.min(2, devicePixelRatio || 1), W = Math.round(lc.clientWidth * dpr), H = Math.round(lc.clientHeight * dpr);
+    if (lc.width !== W || lc.height !== H) { lc.width = W; lc.height = H; }
+    if (depthDirty) uploadDepth();
+    smooth[0] += (look[0] - smooth[0]) * 0.2; smooth[1] += (look[1] - smooth[1]) * 0.2;
+    const p = params(img.w);
+    gl.colorMask(true, true, true, true); gl.viewport(0, 0, W, H); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.uniform1f(U('gray'), 0);
+    if (fmt === 'anaglyph') {
+      gl.uniform1f(U('gray'), 1); gl.colorMask(true, false, false, false); drawEye(0, 0, W, H, +1, p);
+      gl.uniform1f(U('gray'), 0); gl.colorMask(false, true, true, false); drawEye(0, 0, W, H, -1, p);
+      gl.colorMask(true, true, true, true);
+    } else if (fmt === 'overunder') {
+      const hh = Math.floor(H / 2);
+      drawEye(0, H - hh, W, hh, +1, p);   // GL origin is bottom-left, so this is the top half: left eye
+      drawEye(0, 0, W, hh, -1, p);
+    } else {
+      const leftSign = fmt === 'cross' ? -1 : +1, half = Math.floor(W / 2);
+      drawEye(0, 0, half, H, leftSign, p);
+      drawEye(half, 0, W - half, H, -leftSign, p);
+    }
+    requestAnimationFrame(liveFrame);
+  }
+
+  $('liveBtn').onclick = () => {
+    if (!img || !img.depth) return;
+    try { if (!initGL()) { $('saveNote').textContent = 'This browser has no WebGL, so the live view can\'t run.'; return; } }
+    catch (e) { $('saveNote').textContent = 'Live view failed to start: ' + e.message; return; }
+    $('live').classList.remove('hide'); $('livebar').classList.remove('gone'); document.body.style.overflow = 'hidden';
+    uploadLive();
+    liveOn = true; requestAnimationFrame(liveFrame);
+  };
+  const updLive = () => { $('lookV').textContent = $('look').value + '%'; $('sensV').textContent = parseFloat($('sens').value).toFixed(2) + '×'; };
+  $('look').oninput = updLive; $('sens').oninput = updLive; updLive();
+
+  // ---------- controls ----------
+  function updLabels() {
+    $('strV').textContent = parseFloat($('str').value).toFixed(1) + '%';
+    const f = parseFloat($('foc').value);
+    $('crvV').textContent = $('crv').value + '%';
+    $('fszV').textContent = $('fsz').value + '%'; $('fthrV').textContent = $('fthr').value;
+    $('focV').textContent = Math.round(f * 100) + (f < 0.15 ? ' · behind' : f > 0.7 ? ' · pop-out' : '');
+  }
+  updLabels();
+  let raf = 0;
+  const live = () => { updLabels(); cancelAnimationFrame(raf); raf = requestAnimationFrame(renderImage); };
+  $('q').onchange = () => { if (img && !converting) depthForImage(); };
+  $('str').oninput = live; $('foc').oninput = live; $('crv').oninput = () => { depthDirty = true; live(); }; $('fsz').oninput = live; $('fthr').oninput = live; $('frm').onchange = live;
+  $('fmt').onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return;
+    e.preventDefault();
+    fmt = b.dataset.v;
+    [...$('fmt').children].forEach(x => x.classList.toggle('on', x === b));
+    renderImage();
+  };
+
+  // ---------- input ----------
+  function handle(file) {
+    if (!file) return;
+    if (file.type.startsWith('video/') || /\.(mp4|mov|webm|m4v|mkv)$/i.test(file.name)) setupVideo(file);
+    else { $('vidOut').classList.add('hide'); $('vidOpts').classList.add('hide'); processImage(file); }
+  }
+  $('file').onchange = (e) => { handle(e.target.files[0]); e.target.value = ''; };
+  const drop = $('drop');
+  ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => handle(e.dataTransfer.files[0]));
+
+  loadModel().catch(e => { console.error(e); status('Couldn\'t start the depth model: ' + (e.message || e)); });
 })();
 </script>
 </body>
