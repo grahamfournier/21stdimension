@@ -669,8 +669,9 @@
     }
     function corr(dx, dy, W, H) { let best = -1; for (let off = -7; off <= 7; off++) best = Math.max(best, corr1(dx, dy, W, H, off)); return best; }
     const lr = corr(n, 0, n, 2 * n), tb = corr(0, n, 2 * n, n);
-    if (lr > 0.8 && lr >= tb) return 'sbs';
-    if (tb > 0.8) return 'ou';
+    // normal pictures score under ~0.3; 3D files score well above, though busy ones can dip toward 0.6
+    if (lr > 0.6 && lr >= tb + 0.2) return 'sbs';
+    if (tb > 0.6 && tb >= lr + 0.2) return 'ou';
     return 'mono';
   }
   // decide the layout for a newly loaded picture; when 3D is found automatically, start with no added depth
@@ -1988,11 +1989,16 @@
     $('motionBtn').textContent = (eyesOn || tiltOn ? 'Stop ' : '') + ($('motion').value === 'eyes' ? 'Eye tracking' : 'Tilt');
     let hint = '';
     if (videoFile && !converting) {
-      if (liveVid && liveVid.layout !== 'mono' && !liveVid.depthVideo && !liveVid.depths) hint = 'Already 3D. Add its depth video, or calculate depth, to use motion and the frame.';
+      if (liveVid && liveVid.layout !== 'mono' && !liveVid.depthVideo && !liveVid.depths) hint = 'Already 3D. Add its depth video, or calculate depth, to use motion and pop-out.';
+      else if (liveVid && liveVid.layout !== 'mono') hint = 'Depth ready. Motion and pop-out work now.';
       else if (liveVid && (liveVid.depthVideo || liveVid.depths)) hint = 'Depth ready. Make 3D video saves an MP4 with your current settings.';
       else hint = 'Make 3D video to save an MP4, or calculate depth to view it live with motion.';
     }
     $('nextHint').textContent = hint;
+    // an already-3D file has nothing to make: only depth (for motion and pop-out) applies
+    const sel3 = $('inMode').value, is3d = liveVid && liveVid.file === videoFile ? liveVid.layout !== 'mono' : (sel3 !== 'auto' && sel3 !== 'mono');
+    $('startVid').classList.toggle('hide', !!(is3d && !converting));
+    $('previewVid').classList.toggle('hide', !!(is3d && !converting));
   }, 400);
   // ---------- controls ----------
   function updLabels() {
@@ -2013,7 +2019,15 @@
     if (b.dataset.v !== 'auto' && b.dataset.v !== 'mono' && parseFloat($('str').value) !== 0) { $('str').value = 0; updLabels(); }
     [...$('inSeg').children].forEach(x => x.classList.toggle('on', x === b));
     if (img && !converting && img.full && !liveVid) { img = makeImg(img.full, img.name); depthForImage(); }
-    else if (videoFile && (!liveVid || !liveVid.depths || liveVid.file !== videoFile)) { $('detNote').textContent = 'Checking…'; detectVideo(videoFile); }
+    else if (videoFile && !converting) {
+      const v = b.dataset.v;
+      if (v === 'auto') { $('detNote').textContent = 'Checking…'; detectVideo(videoFile); }
+      else if (!(liveVid && liveVid.file === videoFile && liveVid.layout === v)) {
+        // picked by hand: play it that way right away (depth worked out for a different layout no longer fits, so it's dropped)
+        showDetected(v, v);
+        startLivePlayback(videoFile, v, null).catch((err) => status(err.message || String(err)));
+      } else showDetected(v, v);
+    }
     else if (b.dataset.v !== 'auto') showDetected(b.dataset.v, b.dataset.v);
   };
   $('str').oninput = live; $('foc').oninput = live; $('crv').oninput = () => { depthDirty = true; live(); }; $('fsz').oninput = live; $('pop').oninput = live; $('fthr').oninput = live; $('frm').onchange = live;
