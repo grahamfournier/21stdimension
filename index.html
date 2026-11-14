@@ -4,153 +4,140 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
-<title>21st Dimension</title>
+<title>R3D</title>
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #000; --fg: #fff; --dim: #8c8c8c; --line: #2b2b2b; --panel: #0b0b0b; --panel2: #141414;
-    --red: #ff3b3b; --cyan: #00e1ff;
-    --cut: 12px;
-    --chamfer: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
-    --font: "Chakra Petch", ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
-    /* names the script still uses */
+    --bg: #000; --fg: #fff; --dim: #8a8a8a; --panel: #111; --panel2: #1d1d1d; --red: #ff2a2a;
+    --slant: 12px;
+    --display: "Anton", Impact, "Arial Narrow", sans-serif;
+    --body: -apple-system, "Helvetica Neue", "Segoe UI", Roboto, sans-serif;
     --text: var(--fg);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font); }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 var(--body); }
   main { max-width: 980px; margin: 0 auto; padding: calc(14px + env(safe-area-inset-top)) 16px calc(60px + env(safe-area-inset-bottom)); }
   .hide { display: none !important; }
   input[type=file] { display: none; }
 
-  /* ---------- logo: anaglyph ghosting ---------- */
-  .logo { font-weight: 700; letter-spacing: .14em; text-transform: uppercase; position: relative; display: inline-block;
-    text-shadow: -2px 0 var(--red), 2px 0 var(--cyan); animation: ghost 3.2s ease-in-out infinite; }
-  @keyframes ghost { 0%,100% { text-shadow: -2px 0 var(--red), 2px 0 var(--cyan); } 50% { text-shadow: -4px 0 var(--red), 4px 0 var(--cyan); } }
-  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-  .top .logo { font-size: 15px; }
+  /* ---------- logo ---------- */
+  .logo { font-family: var(--display); font-weight: 400; letter-spacing: .02em; line-height: 1; }
+  .logo em { font-style: normal; color: var(--red); }
+  .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+  .top .logo { font-size: 34px; }
 
-  /* ---------- buttons ---------- */
-  .btn { font: 600 13px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: #000; background: var(--fg);
-    border: 0; padding: 12px 18px; cursor: pointer; clip-path: var(--chamfer); --cut: 9px; transition: transform .12s, opacity .15s; }
+  /* ---------- buttons: slanted sides ---------- */
+  .btn { font: 400 16px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; color: #000; background: var(--fg);
+    border: 0; padding: 13px 24px; cursor: pointer; clip-path: polygon(var(--slant) 0, 100% 0, calc(100% - var(--slant)) 100%, 0 100%);
+    transition: transform .12s, opacity .15s, background .15s; display: inline-block; }
   .btn:active { transform: translateY(1px) scale(.98); }
-  .btn.ghost { color: var(--fg); background: var(--panel2); box-shadow: inset 0 0 0 1px #3a3a3a; }
-  .btn.ghost:hover { background: #1f1f1f; }
-  .btn:disabled { opacity: .35; cursor: default; }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+  .btn.red { background: var(--red); color: #fff; }
+  .btn.ghost { color: var(--fg); background: var(--panel2); }
+  .btn.ghost:hover { background: #2a2a2a; }
+  .btn:disabled { opacity: .3; cursor: default; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
   .note { font-size: 12.5px; color: var(--dim); }
 
   /* ---------- start ---------- */
-  #start { min-height: 70vh; display: flex; flex-direction: column; justify-content: center; gap: 18px; }
-  .drop { position: relative; display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 48px 20px 40px; text-align: center; cursor: pointer;
-    background: var(--panel); clip-path: polygon(28px 0, 100% 0, 100% calc(100% - 28px), calc(100% - 28px) 100%, 0 100%, 0 28px);
-    box-shadow: inset 0 0 0 1px #2f2f2f; transition: background .15s; overflow: hidden; }
-  .drop:hover, .drop.over { background: #121212; }
-  .drop b { font-size: 20px; letter-spacing: .12em; }
-  .drop small { color: var(--dim); font-size: 12.5px; letter-spacing: .04em; }
-  .drop .lines { position: absolute; inset: 0; pointer-events: none; opacity: .5; }
+  #start { min-height: 70vh; display: flex; flex-direction: column; justify-content: center; gap: 16px; }
+  .drop { display: flex; flex-direction: column; align-items: center; gap: 16px; padding: 52px 20px 44px; text-align: center; cursor: pointer;
+    background: var(--panel); transition: background .15s; }
+  .drop:hover, .drop.over { background: #181818; }
+  .drop b { font: 400 30px/1.05 var(--display); text-transform: uppercase; letter-spacing: .02em; }
+  .drop small { color: var(--dim); font-size: 12.5px; }
   .sub { color: var(--dim); font-size: 13px; text-align: center; margin: 0; }
 
-  /* ---------- 3D loaders: wireframe cube + parallax stripes ---------- */
+  /* ---------- 3D loader: solid spinning block, one red face ---------- */
   .stage { perspective: 420px; display: grid; place-items: center; }
-  .cube { --s: 54px; width: var(--s); height: var(--s); position: relative; transform-style: preserve-3d; animation: spin 3.6s cubic-bezier(.55,.1,.45,.9) infinite; }
-  .cube.small { --s: 18px; animation-duration: 2.4s; }
-  .cube i { position: absolute; inset: 0; border: 2px solid var(--fg); box-shadow: -2px 0 0 rgba(255,59,59,.55), 2px 0 0 rgba(0,225,255,.55); }
-  .cube.small i { border-width: 1.5px; box-shadow: -1px 0 0 rgba(255,59,59,.6), 1px 0 0 rgba(0,225,255,.6); }
-  .cube i:nth-child(1) { transform: translateZ(calc(var(--s) / 2)); }
-  .cube i:nth-child(2) { transform: rotateY(180deg) translateZ(calc(var(--s) / 2)); }
-  .cube i:nth-child(3) { transform: rotateY(90deg) translateZ(calc(var(--s) / 2)); }
-  .cube i:nth-child(4) { transform: rotateY(-90deg) translateZ(calc(var(--s) / 2)); }
-  .cube i:nth-child(5) { transform: rotateX(90deg) translateZ(calc(var(--s) / 2)); }
-  .cube i:nth-child(6) { transform: rotateX(-90deg) translateZ(calc(var(--s) / 2)); }
-  @keyframes spin { 0% { transform: rotateX(-22deg) rotateY(0); } 50% { transform: rotateX(28deg) rotateY(180deg); } 100% { transform: rotateX(-22deg) rotateY(360deg); } }
+  .cube { --s: 54px; width: var(--s); height: var(--s); position: relative; transform-style: preserve-3d; animation: spin 3.2s cubic-bezier(.6,.05,.4,.95) infinite; }
+  .cube.small { --s: 16px; animation-duration: 2s; }
+  .cube i { position: absolute; inset: 0; background: #e9e9e9; }
+  .cube i:nth-child(1) { transform: translateZ(calc(var(--s) / 2)); background: var(--red); }
+  .cube i:nth-child(2) { transform: rotateY(180deg) translateZ(calc(var(--s) / 2)); background: #5a5a5a; }
+  .cube i:nth-child(3) { transform: rotateY(90deg) translateZ(calc(var(--s) / 2)); background: #bdbdbd; }
+  .cube i:nth-child(4) { transform: rotateY(-90deg) translateZ(calc(var(--s) / 2)); background: #8a8a8a; }
+  .cube i:nth-child(5) { transform: rotateX(90deg) translateZ(calc(var(--s) / 2)); background: #fff; }
+  .cube i:nth-child(6) { transform: rotateX(-90deg) translateZ(calc(var(--s) / 2)); background: #333; }
+  @keyframes spin { 0% { transform: rotateX(-24deg) rotateY(0); } 50% { transform: rotateX(30deg) rotateY(180deg); } 100% { transform: rotateX(-24deg) rotateY(360deg); } }
 
-  /* angled progress bar; while busy, two stripe layers slide at different speeds (parallax) */
-  .pbar { position: relative; height: 12px; flex: 1; min-width: 80px; transform: skewX(-24deg); box-shadow: inset 0 0 0 1px #4a4a4a; overflow: hidden; background: #0a0a0a; }
-  .pbar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--fg); transition: width .25s; }
-  .pbar::before, .pbar::after { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity .2s; pointer-events: none; }
-  .pbar::before { background: repeating-linear-gradient(90deg, transparent 0 14px, rgba(255,255,255,.22) 14px 18px); animation: slide 1.6s linear infinite; }
-  .pbar::after { background: repeating-linear-gradient(90deg, transparent 0 34px, rgba(255,255,255,.12) 34px 46px); animation: slide 3.2s linear infinite reverse; }
-  .busy .pbar::before, .busy .pbar::after, #boot .pbar::before, #boot .pbar::after { opacity: 1; }
-  @keyframes slide { from { background-position: 0 0; } to { background-position: 92px 0; } }
+  /* progress bar: solid track, red fill; stripes slide while busy */
+  .pbar { position: relative; height: 10px; flex: 1; min-width: 80px; overflow: hidden; background: var(--panel2); }
+  .pbar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: var(--red); transition: width .25s; }
+  .pbar::after { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity .2s; pointer-events: none;
+    background: repeating-linear-gradient(90deg, transparent 0 16px, rgba(255,255,255,.16) 16px 24px); animation: slide 1.2s linear infinite; }
+  .busy .pbar::after, #boot .pbar::after { opacity: 1; }
+  @keyframes slide { to { background-position: 24px 0; } }
 
   /* ---------- boot screen ---------- */
-  #boot { position: fixed; inset: 0; z-index: 100; background: #000; display: grid; place-items: center; overflow: hidden; transition: opacity .5s; }
+  #boot { position: fixed; inset: 0; z-index: 100; background: #000; display: grid; place-items: center; transition: opacity .5s; }
   #boot.gone { opacity: 0; pointer-events: none; }
-  #boot .par { position: absolute; inset: -60%; pointer-events: none; will-change: transform; }
-  #boot .p1 { background: repeating-linear-gradient(115deg, transparent 0 46px, rgba(255,255,255,.05) 46px 47px); animation: drift1 3s linear infinite; }
-  #boot .p2 { background: repeating-linear-gradient(115deg, transparent 0 90px, rgba(255,255,255,.08) 90px 92px); animation: drift2 2.6s linear infinite; }
-  #boot .p3 { background: repeating-linear-gradient(115deg, transparent 0 170px, rgba(255,255,255,.12) 170px 174px); animation: drift3 1.8s linear infinite; }
-  @keyframes drift1 { to { translate: 51.86px 0; } }
-  @keyframes drift2 { to { translate: 101.51px 0; } }
-  @keyframes drift3 { to { translate: 191.99px 0; } }
-  .bootIn { position: relative; display: flex; flex-direction: column; align-items: center; gap: 28px; width: min(86vw, 380px); }
-  .bootIn .logo { font-size: 26px; text-align: center; }
-  .bootIn .pbar { width: 100%; flex: none; height: 14px; }
-  .bootTxt { color: var(--dim); font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; text-align: center; min-height: 1.4em; }
+  .bootIn { display: flex; flex-direction: column; align-items: center; gap: 30px; width: min(80vw, 340px); }
+  .bootIn .logo { font-size: 72px; }
+  .bootIn .pbar { width: 100%; flex: none; height: 12px; }
+  .bootTxt { color: var(--dim); font: 400 14px/1.2 var(--display); letter-spacing: .1em; text-transform: uppercase; text-align: center; min-height: 1.2em; }
 
   /* ---------- workspace ---------- */
   .viewer { position: relative; }
   .out canvas, .out video { width: 100%; height: auto; display: block; background: #000; }
-  #view { clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px); touch-action: manipulation; }
-  .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  #view { touch-action: manipulation; }
+  .tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
   .tools .note { flex: 1 1 180px; }
-  .strip { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 10px 14px; background: var(--panel); clip-path: var(--chamfer); --cut: 10px; }
-  .strip .stage { width: 22px; height: 22px; perspective: 160px; display: none; }
+  .strip { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px 14px; background: var(--panel); }
+  .strip .stage { width: 20px; height: 20px; perspective: 160px; display: none; }
   .strip.busy .stage { display: grid; }
   .strip .pbar { height: 8px; flex: 0 0 34%; }
-  .status { color: #cfcfcf; font-size: 12.5px; flex: 1; min-width: 0; }
+  .status { color: #d0d0d0; font-size: 12.5px; flex: 1; min-width: 0; }
 
-  .card { margin-top: 12px; padding: 14px; background: var(--panel); clip-path: var(--chamfer); --cut: 14px; box-shadow: inset 0 0 0 1px #262626; }
-  .card h3 { margin: 0 0 4px; font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+  .card { margin-top: 12px; padding: 16px; background: var(--panel); }
+  .card h3 { margin: 0 0 4px; font: 400 22px/1 var(--display); text-transform: uppercase; letter-spacing: .03em; }
   .thumbs { display: flex; gap: 12px; margin-top: 12px; align-items: flex-start; }
   .thumbs figure { margin: 0; flex: 0 0 120px; }
-  .thumbs canvas { width: 120px; display: block; clip-path: var(--chamfer); --cut: 8px; }
-  .thumbs figcaption { font-size: 11px; color: var(--dim); margin-top: 4px; letter-spacing: .04em; }
-  #vidPreview, #vidResult { margin-top: 12px; clip-path: var(--chamfer); }
+  .thumbs canvas { width: 120px; display: block; }
+  .thumbs figcaption { font-size: 11px; color: var(--dim); margin-top: 4px; }
+  #vidPreview, #vidResult { margin-top: 12px; }
 
-  /* ---------- settings: folding, angled tabs ---------- */
-  details { margin-top: 10px; background: var(--panel); clip-path: var(--chamfer); --cut: 12px; box-shadow: inset 0 0 0 1px #232323; }
-  summary { list-style: none; cursor: pointer; padding: 13px 16px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; font-size: 13px;
-    display: flex; align-items: center; gap: 10px; }
+  /* ---------- settings: folding blocks ---------- */
+  details { margin-top: 8px; background: var(--panel); }
+  summary { list-style: none; cursor: pointer; padding: 14px 16px; font: 400 22px/1 var(--display); text-transform: uppercase; letter-spacing: .03em;
+    display: flex; align-items: center; gap: 12px; }
   summary::-webkit-details-marker { display: none; }
-  summary::before { content: ""; width: 8px; height: 8px; border-right: 2px solid var(--fg); border-bottom: 2px solid var(--fg); transform: rotate(-45deg); transition: transform .2s; }
-  details[open] summary::before { transform: rotate(45deg); }
-  summary .sv { margin-left: auto; color: var(--dim); font-weight: 500; letter-spacing: .04em; text-transform: none; font-size: 12px; }
-  .inner { padding: 4px 16px 16px; }
-  .row { display: flex; flex-wrap: wrap; gap: 16px 22px; align-items: flex-end; margin-top: 10px; }
-  label.f, div.f { display: flex; flex-direction: column; gap: 8px; font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .12em; min-width: 150px; flex: 1; }
-  label.f span.v { color: var(--fg); letter-spacing: .04em; float: right; }
+  summary::before { content: ""; width: 0; height: 0; border-left: 7px solid var(--red); border-top: 6px solid transparent; border-bottom: 6px solid transparent; transition: transform .2s; }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .sv { margin-left: auto; color: var(--dim); font: 400 12.5px/1.2 var(--body); text-transform: none; letter-spacing: 0; }
+  .inner { padding: 2px 16px 16px; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px 22px; align-items: flex-end; margin-top: 12px; }
+  label.f, div.f { display: flex; flex-direction: column; gap: 8px; font: 400 14px/1.1 var(--display); color: #bdbdbd; text-transform: uppercase; letter-spacing: .06em; min-width: 150px; flex: 1; }
+  label.f span.v { color: var(--fg); float: right; }
   .tip { font-size: 12px; color: var(--dim); line-height: 1.5; margin: 12px 0 0; }
 
-  /* segmented controls as slanted blocks */
-  .seg { display: flex; gap: 4px; flex-wrap: wrap; }
-  .seg button { flex: 1 1 auto; font: 600 12px/1 var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); background: var(--panel2);
-    border: 0; padding: 11px 12px; cursor: pointer; clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); white-space: nowrap; }
-  .seg button.on { background: var(--fg); color: #000; }
+  /* option groups use the same slanted buttons */
+  .seg { display: flex; gap: 5px; flex-wrap: wrap; }
+  .seg button { flex: 1 1 auto; font: 400 15px/1 var(--display); letter-spacing: .05em; text-transform: uppercase; color: #cfcfcf; background: var(--panel2);
+    border: 0; padding: 12px 18px; cursor: pointer; clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%); white-space: nowrap; }
+  .seg button.on { background: var(--red); color: #fff; }
 
-  select { appearance: none; -webkit-appearance: none; font: 500 13px/1.2 var(--font); color: var(--fg); background: var(--panel2); border: 0; padding: 11px 32px 11px 12px;
-    clip-path: var(--chamfer); --cut: 7px; background-image: linear-gradient(45deg, transparent 50%, #fff 50%), linear-gradient(135deg, #fff 50%, transparent 50%);
-    background-position: calc(100% - 16px) 52%, calc(100% - 11px) 52%; background-size: 5px 5px; background-repeat: no-repeat; }
+  select { appearance: none; -webkit-appearance: none; font: 500 14px/1.2 var(--body); color: var(--fg); background: var(--panel2); border: 0; border-radius: 0; padding: 12px 34px 12px 12px;
+    background-image: linear-gradient(45deg, transparent 50%, var(--red) 50%), linear-gradient(135deg, var(--red) 50%, transparent 50%);
+    background-position: calc(100% - 18px) 52%, calc(100% - 12px) 52%; background-size: 6px 6px; background-repeat: no-repeat; }
 
-  /* sliders: hairline track, diamond thumb */
-  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 22px; background: transparent; }
-  input[type=range]::-webkit-slider-runnable-track { height: 2px; background: #3a3a3a; }
-  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -6px; background: var(--fg); transform: rotate(45deg); border: 0; }
-  input[type=range]::-moz-range-track { height: 2px; background: #3a3a3a; }
-  input[type=range]::-moz-range-thumb { width: 12px; height: 12px; background: var(--fg); border: 0; border-radius: 0; transform: rotate(45deg); }
+  /* sliders: solid track, red block thumb */
+  input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 26px; background: transparent; }
+  input[type=range]::-webkit-slider-runnable-track { height: 6px; background: var(--panel2); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 24px; margin-top: -9px; background: var(--red); border: 0; border-radius: 0; }
+  input[type=range]::-moz-range-track { height: 6px; background: var(--panel2); }
+  input[type=range]::-moz-range-thumb { width: 14px; height: 24px; background: var(--red); border: 0; border-radius: 0; }
 
-  textarea { width: 100%; margin-top: 10px; background: #000; color: var(--fg); border: 0; box-shadow: inset 0 0 0 1px #333; padding: 10px; font: 12.5px/1.4 ui-monospace, monospace; }
+  textarea { width: 100%; margin-top: 10px; background: var(--panel2); color: var(--fg); border: 0; padding: 10px; font: 12.5px/1.4 ui-monospace, monospace; }
 </style>
 </head>
 <body>
 <div id="boot">
-  <div class="par p1"></div><div class="par p2"></div><div class="par p3"></div>
   <div class="bootIn">
-    <div class="stage" style="height:90px"><div class="cube"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
-    <div class="logo">21st Dimension</div>
+    <div class="stage" style="height:100px"><div class="cube" style="--s:60px"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+    <div class="logo">R<em>3</em>D</div>
     <div class="pbar"><i id="bootBar"></i></div>
     <div class="bootTxt" id="bootTxt">Warming up the depth engine…</div>
   </div>
@@ -158,17 +145,14 @@
 
 <main>
   <div class="top">
-    <div class="logo">21st Dimension</div>
+    <div class="logo">R<em>3</em>D</div>
     <button class="btn ghost hide" id="openNew">Open another</button>
   </div>
 
   <section id="start">
     <label class="drop" id="drop">
-      <svg class="lines" viewBox="0 0 400 300" preserveAspectRatio="none" aria-hidden="true">
-        <g stroke="#fff" stroke-width="1" fill="none" opacity=".25"><path d="M0 220 L400 120"/><path d="M0 250 L400 160"/><path d="M0 280 L400 200"/></g>
-      </svg>
       <input type="file" id="file" accept="image/*,video/*">
-      <div class="stage" style="height:70px"><div class="cube" style="--s:44px"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+      <div class="stage" style="height:80px"><div class="cube" style="--s:46px"><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
       <b>Open a photo or video</b>
       <small id="dropNote">Normal or already 3D · JPG · PNG · HEIC · MP4 · MOV</small>
     </label>
@@ -188,7 +172,7 @@
       <div class="thumbs">
         <figure><canvas id="depthCanvas"></canvas><figcaption>Depth · bright = near</figcaption></figure>
         <div class="actions" style="margin-top:0;flex:1">
-          <button class="btn" id="saveImg">Save image</button>
+          <button class="btn red" id="saveImg">Save image</button>
           <button class="btn ghost" id="saveDepth">Save depth map</button>
           <span class="note" id="saveNote"></span>
         </div>
@@ -205,7 +189,7 @@
       <h3>Next</h3>
       <div class="note" id="nextHint"></div>
       <div class="actions">
-        <button class="btn" id="startVid" disabled>Make 3D video</button>
+        <button class="btn red" id="startVid" disabled>Make 3D video</button>
         <button class="btn ghost" id="allowTilt" disabled>Calculate depth</button>
         <label class="btn ghost hide" id="depthUp">Add depth video<input type="file" id="depthFile" accept="video/*"></label>
         <button class="btn ghost" id="previewVid" disabled>Preview a frame</button>
@@ -215,7 +199,7 @@
       <canvas id="vidPreview" class="hide"></canvas>
       <video id="vidResult" class="hide" controls playsinline loop></video>
       <div class="actions">
-        <button class="btn hide" id="saveVid">Save MP4</button>
+        <button class="btn red hide" id="saveVid">Save MP4</button>
         <button class="btn ghost hide" id="saveDepthVid">Save depth MP4</button>
         <span class="note" id="vidSaveNote"></span>
       </div>
@@ -353,12 +337,6 @@
     $('strip').classList.toggle('busy', p > 0 && p < 1);
   };
   function endBoot() { if (!booting) return; booting = false; $('boot').classList.add('gone'); setTimeout(() => $('boot').classList.add('hide'), 600); }
-  // boot screen parallax: the three stripe layers follow the pointer by different amounts
-  window.addEventListener('pointermove', (e) => {
-    if (!booting) return;
-    const dx = e.clientX / innerWidth - 0.5, dy = e.clientY / innerHeight - 0.5;
-    document.querySelectorAll('#boot .par').forEach((el, i) => { const k = (i + 1) * 14; el.style.transform = `translate(${dx * k}px, ${dy * k}px)`; });
-  });
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   // ---------- saving ----------
