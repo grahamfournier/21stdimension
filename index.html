@@ -71,11 +71,15 @@
   .bootTxt { color: var(--dim); font-size: 14px; text-align: center; min-height: 1.2em; }
 
   /* ---------- workspace ---------- */
-  .viewer { position: relative; }
+  /* the picture stays at the top while the settings scroll under it */
+  .viewer { display: contents; }
+  .stick { position: sticky; top: 0; z-index: 30; background: var(--bg); padding: env(safe-area-inset-top) 0 8px; margin-top: -4px; }
+  .stick canvas, .stick #viewHold { display: block; width: 100%; max-height: 46vh; object-fit: contain; margin: 0 auto; }
+  .stick .hide { display: none !important; }
   .out canvas, .out video { width: 100%; height: auto; display: block; background: #000; border-radius: var(--r); }
   #view { touch-action: manipulation; }
-  #view.popOver { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 40; pointer-events: none; background: transparent; border-radius: 0; }
-  #viewHold { width: 100%; background: #000; border-radius: var(--r); }
+  #view.popOver { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; max-height: none; object-fit: fill; margin: 0; z-index: 40; pointer-events: none; background: transparent; border-radius: 0; }
+  #viewHold { background: #000; border-radius: var(--r); }
   .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
   .tools .note { flex: 1 1 180px; }
   .strip { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px 16px; background: var(--white); border-radius: var(--r); }
@@ -155,9 +159,11 @@
 
   <section id="work" class="hide">
     <section class="out viewer hide" id="imgOut">
-      <canvas id="view"></canvas>
-      <div id="viewHold" class="hide"></div>
-      <canvas id="outCanvas" class="hide" style="width:100%"></canvas>
+      <div class="stick">
+        <canvas id="view"></canvas>
+        <div id="viewHold" class="hide"></div>
+        <canvas id="outCanvas" class="hide"></canvas>
+      </div>
       <div class="tools">
         <button class="btn hide" id="playLive">Pause</button>
         <button class="btn ghost" id="motionBtn">Eye tracking</button>
@@ -1237,14 +1243,13 @@
     float D(vec2 p) { float d = texture2D(dep, drect.xy + p * drect.zw).r; return clamp((d - 0.5) * contrast + 0.5, 0.0, 1.0); }
     float S(float d) { return 1.0 + popK * smoothstep(0.45, 1.0, d); }
     // find the source pixel that lands at q when near things are scaled up around the middle and shifted
-    vec2 solveP(vec2 q, vec2 p) {
-      for (int i = 0; i < 16; i++) { float d = D(clamp(p, 0.0, 1.0)); p = mix(p, 0.5 + (q - shift * (d - focus) - 0.5) / S(d), 0.6); }
-      return p;
-    }
-    float landErr(vec2 q, vec2 p) {
-      if (p.x < -0.002 || p.x > 1.002 || p.y < -0.002 || p.y > 1.002) return 9.0;
-      float d = D(clamp(p, 0.0, 1.0));
-      return length(0.5 + (p - 0.5) * S(d) + shift * (d - focus) - q);
+    // where a point at depth d that lands on q comes from
+    vec2 srcAt(vec2 q, float d) { return 0.5 + (q - shift * (d - focus) - 0.5) / S(d); }
+    // how far the picture's depth at that source is in front of d (>= 0 means a surface is there)
+    float gap(vec2 q, float d) {
+      vec2 p = srcAt(q, d);
+      if (p.x < 0.0 || p.x > 1.0 || p.y < 0.0 || p.y > 1.0) return -1.0;
+      return D(p) - d;
     }
     void main(){
       vec2 q = uv;
@@ -1262,16 +1267,18 @@
         float reach = 0.5 * popK + length(shift) + 0.02;
         float a = 0.0; vec2 pp = clamp(q, 0.0, 1.0); float dd = 0.0;
         if (inside || max(far.x, far.y) < reach) {
-          vec2 pa = solveP(q, q), pb = solveP(q, 0.5 + (q - 0.5) / (1.0 + popK));
-          float ea = landErr(q, pa), eb = landErr(q, pb), tol = 0.006;
-          bool oa = ea < tol, ob = eb < tol;
-          float da = D(clamp(pa, 0.0, 1.0)), db = D(clamp(pb, 0.0, 1.0));
-          bool ok = true;
-          if (oa && ob) { if (db > da) { pp = pb; dd = db; } else { pp = pa; dd = da; } }
-          else if (ob) { pp = pb; dd = db; }
-          else if (oa) { pp = pa; dd = da; }
-          else { pp = clamp(pa, 0.0, 1.0); dd = da; ok = false; }
-          // past the picture's edge only the near parts show, fading in with how near they are
+          // step from nearest to farthest; the first depth where the picture has something is what you see
+          float hi = 1.0, lo = 1.0; bool hit = false;
+          for (int i = 0; i <= 40; i++) {
+            float d = 1.0 - float(i) / 40.0;
+            if (gap(q, d) >= 0.0) { lo = d; hit = true; break; }
+            hi = d;
+          }
+          bool ok = hit;
+          if (hit) {
+            for (int i = 0; i < 6; i++) { float m = 0.5 * (lo + hi); if (gap(q, m) >= 0.0) lo = m; else hi = m; }
+            dd = lo; pp = clamp(srcAt(q, dd), 0.0, 1.0);
+          }
           a = inside ? 1.0 : (ok ? smoothstep(0.15, 0.45, smoothstep(0.45, 1.0, dd)) : 0.0);
         }
         vec3 c = texture2D(img, rect.xy + clamp(pp, 0.0, 1.0) * rect.zw).rgb;
@@ -1904,6 +1911,10 @@
     if (over !== lc.classList.contains('popOver')) {
       lc.classList.toggle('popOver', over); hold.classList.toggle('hide', !over);
     }
+    const fitW = 'min(100%, calc(46vh * ' + (W / H).toFixed(4) + '))';
+    const lcW = over ? '' : fitW;   // the full-screen pop-out canvas keeps its own size
+    if (lc.style.width !== lcW) lc.style.width = lcW;
+    if (hold.style.width !== fitW) hold.style.width = fitW;
     if (over) {
       hold.style.aspectRatio = W + ' / ' + H;
       const r = hold.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight;
