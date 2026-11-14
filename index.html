@@ -74,6 +74,7 @@
   .viewer { position: relative; }
   .out canvas, .out video { width: 100%; height: auto; display: block; background: #000; border-radius: var(--r); }
   #view { touch-action: manipulation; }
+  #view.popRoom { background: transparent; border-radius: 0; }
   .tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
   .tools .note { flex: 1 1 180px; }
   .strip { display: flex; align-items: center; gap: 12px; margin-top: 12px; padding: 12px 16px; background: var(--white); border-radius: var(--r); }
@@ -233,6 +234,12 @@
           </div>
         </div>
         <div class="row">
+          <label class="f">Pop-out <span class="v" id="popV"></span>
+            <input type="range" id="pop" min="0" max="150" step="5" value="0">
+          </label>
+        </div>
+        <p class="tip">Pop-out makes the closest things bigger, and lets them spill past the edge of the picture onto the screen around it. Works with eye tracking and tilt. 0 is off.</p>
+        <div class="row hide">
           <label class="f">Pop-out frame
             <select id="frm"><option value="off" selected>Off</option><option value="black">Black</option><option value="white">White</option></select>
           </label>
@@ -629,7 +636,7 @@
   function params(w) {
     // slider: high = pop-out, so the depth that sits at the screen is 1 - value
     return { maxShift: parseFloat($('str').value) / 100 * w, focus: 1 - parseFloat($('foc').value), contrast: parseFloat($('crv').value) / 100,
-      frame: $('frm').value === 'off' ? null : { size: parseFloat($('fsz').value) / 100, thr: parseFloat($('fthr').value) / 100, color: $('frm').value === 'white' ? [245, 245, 245] : [0, 0, 0] } };
+      frame: null };
   }
 
   // ---------- 3D input: files that already hold two eyes ----------
@@ -1189,7 +1196,7 @@
       ', screen plane ' + Math.round(parseFloat($('foc').value) * 100) + ', depth contrast ' + $('crv').value + '%' +
       ', depth detail ' + opt('q').replace(/ \(.*\)/, '') + ', frame rate ' + $('fps').value + ' fps, width per eye ' + $('vw').value +
       ' px, speed ' + ($('speed').value === 'fast' ? 'fast' : 'normal') + ', range ' + opt('range') + ', input ' + opt('inMode') +
-      ($('frm').value === 'off' ? ', pop-out frame off' : ', pop-out frame ' + $('frm').value + ' size ' + $('fsz').value + '% break-out ' + $('fthr').value) + '.';
+      ', pop-out ' + $('pop').value + '% (live view only).';
   }
   $('copySettings').onclick = async () => {
     const t = settingsText(), ta = $('settingsText');
@@ -1220,10 +1227,48 @@
     uniform vec4 place;      // this eye's picture inside the canvas (x, y, w, h as fractions)
     uniform vec3 clip;       // keep pixels where clip.x*px + clip.y*py + clip.z >= 0 (the dividing line)
     uniform vec2 canvasPx;
+    uniform float popK;      // pop-out: how much bigger the nearest things get (0 = off)
+    uniform vec3 bgc;        // screen around the picture
     float FD(vec2 p) { float d = texture2D(fdep, fdrect.xy + p * fdrect.zw).r; return clamp((d - 0.5) * contrast + 0.5, 0.0, 1.0); }
     float D(vec2 p) { float d = texture2D(dep, drect.xy + p * drect.zw).r; return clamp((d - 0.5) * contrast + 0.5, 0.0, 1.0); }
+    float S(float d) { return 1.0 + popK * smoothstep(0.45, 1.0, d); }
+    // find the source pixel that lands at q when near things are scaled up around the middle and shifted
+    vec2 solveP(vec2 q, vec2 p) {
+      for (int i = 0; i < 16; i++) { float d = D(clamp(p, 0.0, 1.0)); p = mix(p, 0.5 + (q - shift * (d - focus) - 0.5) / S(d), 0.6); }
+      return p;
+    }
+    float landErr(vec2 q, vec2 p) {
+      if (p.x < -0.002 || p.x > 1.002 || p.y < -0.002 || p.y > 1.002) return 9.0;
+      float d = D(clamp(p, 0.0, 1.0));
+      return length(0.5 + (p - 0.5) * S(d) + shift * (d - focus) - q);
+    }
     void main(){
       vec2 q = uv;
+      if (popK > 0.0) {
+        if (placeOn > 0.5) {
+          vec2 P = uv * canvasPx;
+          if (dot(P, clip.xy) + clip.z < 0.0) discard;
+          q = (uv - place.xy) / place.zw;
+        }
+        bool inside = q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0;
+        vec2 pa = solveP(q, q), pb = solveP(q, 0.5 + (q - 0.5) / (1.0 + popK));
+        float ea = landErr(q, pa), eb = landErr(q, pb), tol = 0.006;
+        bool oa = ea < tol, ob = eb < tol;
+        float da = D(clamp(pa, 0.0, 1.0)), db = D(clamp(pb, 0.0, 1.0));
+        vec2 pp; float dd; bool ok = true;
+        if (oa && ob) { if (db > da) { pp = pb; dd = db; } else { pp = pa; dd = da; } }
+        else if (ob) { pp = pb; dd = db; }
+        else if (oa) { pp = pa; dd = da; }
+        else { pp = clamp(pa, 0.0, 1.0); dd = da; ok = false; }
+        // outside the picture only the parts that pop out show; everything else is the screen
+        if (!inside && !ok) { gl_FragColor = vec4(bgc, 1.0); return; }
+        vec3 c = texture2D(img, rect.xy + clamp(pp, 0.0, 1.0) * rect.zw).rgb;
+        if (gray > 0.5) c = vec3(dot(c, vec3(0.299, 0.587, 0.114)));
+        // past the edge, the less near something is the more it fades into the screen (no hard slivers)
+        if (!inside) c = mix(bgc, c, smoothstep(0.15, 0.45, smoothstep(0.45, 1.0, dd)));
+        gl_FragColor = vec4(c, 1.0);
+        return;
+      }
       if (placeOn > 0.5) {
         vec2 P = uv * canvasPx;
         if (dot(P, clip.xy) + clip.z < 0.0) discard;
@@ -1691,7 +1736,8 @@
     const motion = 0.05 * (eyesOn ? depthMul : 1);
     return [half * Math.cos(headRoll) + dir * smooth[0] * motion, half * Math.sin(headRoll) * (ew / eh) + dir * smooth[1] * motion];
   }
-  let curPlace = null;   // set while drawing side-by-side pictures with free placement
+  let curPlace = null;
+  const POPBG = [0xE3 / 255, 0xE3 / 255, 0xE3 / 255];   // the page background, so pop-outs land on the screen   // set while drawing side-by-side pictures with free placement
   function setPlace() {
     gl.uniform1f(U('placeOn'), curPlace ? 1 : 0);
     if (curPlace) {
@@ -1722,6 +1768,7 @@
     }
     const sh = eyeShift(eye, ew, eh);
     gl.uniform2f(U('shift'), sh[0], sh[1]);
+    gl.uniform1f(U('popK'), p.pop || 0); gl.uniform3f(U('bgc'), ...POPBG);
     gl.uniform1f(U('focus'), p.focus);
     gl.uniform1f(U('contrast'), 1 / Math.max(0.002, 1 - p.contrast));
     gl.uniform1f(U('frameOn'), p.frame ? 1 : 0);
@@ -1813,13 +1860,27 @@
     // canvas has the same shape as the saved output
     const OW = fmt === 'parallel' || fmt === 'cross' ? ew * 2 : ew, OH = fmt === 'overunder' ? eh * 2 : eh;   // window / red-cyan: one picture
     const sc = Math.min(1, 2048 / Math.max(OW, OH)), W = Math.round(OW * sc), H = Math.round(OH * sc);
-    const CH = H;
-    if (lc.width !== W || lc.height !== CH) { lc.width = W; lc.height = CH; }
     const p = params(ew);
     const raw = liveVid && !liveVid.depths && !liveVid.depthVideo;   // video shown as-is until depth is prepared
     if (raw) { p.frame = null; p.focus = 0.5; }
+    p.pop = raw ? 0 : parseFloat($('pop').value) / 100;
+    // pop-out: room around the pictures, filling most of the screen's height, for near things to spill into
+    const room = p.pop > 0 && fmt !== 'overunder';
+    const nEyes = fmt === 'parallel' || fmt === 'cross' ? 2 : 1;
+    let CW = W, CH = H;
+    if (room) {
+      const padX = Math.round(0.08 * W / nEyes);
+      CW = W + 2 * nEyes * padX;
+      const cssW = lc.clientWidth || 360, want = CW * (window.innerHeight * 0.78) / cssW;
+      CH = Math.round(Math.min(Math.max(want, H * 1.3), H * 3, 2600));
+    }
+    lc.classList.toggle('popRoom', room);
+    if (lc.width !== CW || lc.height !== CH) { lc.width = CW; lc.height = CH; }
     const monoPhoto = !liveVid && img.eyes[1] === img.eyes[0];
-    gl.colorMask(true, true, true, true); gl.viewport(0, 0, W, CH); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.colorMask(true, true, true, true); gl.viewport(0, 0, CW, CH);
+    if (room) gl.clearColor(POPBG[0], POPBG[1], POPBG[2], 1); else gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    const single = room ? { place: [(CW - W) / 2 / CW, (CH - H) / 2 / CH, W / CW, H / CH], clip: [0, 0, 1], canvas: [CW, CH] } : null;
     curPlace = null;
     gl.uniform1f(U('gray'), 0);
     const draw = (x, y, w, h, k) => {
@@ -1827,25 +1888,26 @@
       else drawEye(x, y, w, h, k, p, ew, eh, rect);
     };
     if (fmt === 'anaglyph') {
-      gl.uniform1f(U('gray'), 1); gl.colorMask(true, false, false, false); draw(0, 0, W, H, 0);
-      gl.uniform1f(U('gray'), 0); gl.colorMask(false, true, true, false); draw(0, 0, W, H, 1);
-      gl.colorMask(true, true, true, true);
+      curPlace = single;
+      gl.uniform1f(U('gray'), 1); gl.colorMask(true, false, false, false); draw(0, 0, CW, CH, 0);
+      gl.uniform1f(U('gray'), 0); gl.colorMask(false, true, true, false); draw(0, 0, CW, CH, 1);
+      gl.colorMask(true, true, true, true); curPlace = null;
     } else if (fmt === 'overunder') {
       const hh = Math.floor(H / 2);
       draw(0, H - hh, W, hh, 0);   // GL origin is bottom-left, so this is the top half: left eye
       draw(0, 0, W, hh, 1);
     } else if (fmt === 'window') {
-      draw(0, 0, W, H, 0);
+      curPlace = single; draw(0, 0, CW, CH, 0); curPlace = null;
     } else {
       // the two pictures sit on the line between the viewer's eyes (tilted with the head), split by a line
       // through the middle at right angles to it
       const first = fmt === 'cross' ? 1 : 0, ux = Math.cos(headRoll), uy = Math.sin(headRoll);
-      const cx = W / 2, cy = CH / 2, cu = cx * ux + cy * uy;
-      const placeAt = (sgn) => [((cx + sgn * ux * W / 4) - W / 4) / W, ((cy + sgn * uy * W / 4) - H / 2) / CH, 0.5, H / CH];
-      curPlace = { place: placeAt(-1), clip: [-ux, -uy, cu], canvas: [W, CH] };
-      draw(0, 0, W, CH, first);
-      curPlace = { place: placeAt(1), clip: [ux, uy, -cu], canvas: [W, CH] };
-      draw(0, 0, W, CH, 1 - first);
+      const cx = CW / 2, cy = CH / 2, cu = cx * ux + cy * uy;
+      const placeAt = (sgn) => [((cx + sgn * ux * CW / 4) - W / 4) / CW, ((cy + sgn * uy * CW / 4) - H / 2) / CH, (W / 2) / CW, H / CH];
+      curPlace = { place: placeAt(-1), clip: [-ux, -uy, cu], canvas: [CW, CH] };
+      draw(0, 0, CW, CH, first);
+      curPlace = { place: placeAt(1), clip: [ux, uy, -cu], canvas: [CW, CH] };
+      draw(0, 0, CW, CH, 1 - first);
       curPlace = null;
     }
   }
@@ -1858,6 +1920,7 @@
     setPlace();
     const sh = eyeShift(k, ew, eh);
     gl.uniform2f(U('shift'), sh[0], sh[1]);
+    gl.uniform1f(U('popK'), p.pop || 0); gl.uniform3f(U('bgc'), ...POPBG);
     gl.uniform1f(U('focus'), p.focus);
     gl.uniform1f(U('contrast'), 1 / Math.max(0.002, 1 - p.contrast));
     gl.uniform1f(U('frameOn'), p.frame ? 1 : 0);
@@ -1884,7 +1947,7 @@
   setInterval(() => {
     const opt = (id) => { const e = $(id); return e.options[e.selectedIndex].text.replace(/ \(.*\)/, ''); };
     $('sv3d').textContent = 'strength ' + parseFloat($('str').value).toFixed(1) + ' · plane ' + Math.round(parseFloat($('foc').value) * 100);
-    $('svLook').textContent = ({ parallel: 'Parallel', cross: 'Cross-eye', anaglyph: 'Red/Cyan', overunder: 'Over-under', window: 'Window' })[fmt] + ($('frm').value !== 'off' ? ' · frame' : '');
+    $('svLook').textContent = ({ parallel: 'Parallel', cross: 'Cross-eye', anaglyph: 'Red/Cyan', overunder: 'Over-under', window: 'Window' })[fmt] + ($('pop').value !== '0' ? ' · pop-out ' + $('pop').value + '%' : '');
     $('svMotion').textContent = opt('motion').replace(' (front camera)', '').replace(' (phone movement)', '') + (eyesOn || tiltOn ? ' · on' : ' · off');
     $('svSource').textContent = { auto: 'Auto', mono: 'Normal', sbs: 'Already 3D', cross: 'Cross-eye 3D', ou: 'Over-under 3D' }[$('inMode').value];
     $('svExport').textContent = videoFile ? opt('fps') + ' · ' + opt('vw') : '';
@@ -1902,7 +1965,7 @@
     $('strV').textContent = parseFloat($('str').value).toFixed(1) + '%';
     const f = parseFloat($('foc').value);
     $('crvV').textContent = $('crv').value + '%';
-    $('fszV').textContent = $('fsz').value + '%'; $('fthrV').textContent = $('fthr').value;
+    $('fszV').textContent = $('fsz').value + '%'; $('fthrV').textContent = $('fthr').value; $('popV').textContent = $('pop').value === '0' ? 'Off' : $('pop').value + '%';
     $('focV').textContent = Math.round(f * 100) + (f < 0.15 ? ' · behind' : f > 0.7 ? ' · pop-out' : '');
   }
   updLabels();
@@ -1919,7 +1982,7 @@
     else if (videoFile && (!liveVid || !liveVid.depths || liveVid.file !== videoFile)) { $('detNote').textContent = 'Checking…'; detectVideo(videoFile); }
     else if (b.dataset.v !== 'auto') showDetected(b.dataset.v, b.dataset.v);
   };
-  $('str').oninput = live; $('foc').oninput = live; $('crv').oninput = () => { depthDirty = true; live(); }; $('fsz').oninput = live; $('fthr').oninput = live; $('frm').onchange = live;
+  $('str').oninput = live; $('foc').oninput = live; $('crv').oninput = () => { depthDirty = true; live(); }; $('fsz').oninput = live; $('pop').oninput = live; $('fthr').oninput = live; $('frm').onchange = live;
   $('fmt').onclick = (e) => {
     const b = e.target.closest('button'); if (!b) return;
     e.preventDefault();
